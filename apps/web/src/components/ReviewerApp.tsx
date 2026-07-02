@@ -97,6 +97,8 @@ export function ReviewerApp({ initialToken }: Props) {
       [current.databaseId]: {
         id: saved.reviewId,
         reviewerId: existing[current.databaseId]?.reviewerId ?? "",
+        reviewerName: existing[current.databaseId]?.reviewerName ?? "",
+        reviewerEmail: existing[current.databaseId]?.reviewerEmail ?? "",
         sessionId,
         databaseId: current.databaseId,
         selectedSubjects,

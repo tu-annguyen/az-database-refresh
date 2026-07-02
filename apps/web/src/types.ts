@@ -11,6 +11,8 @@ export type AdminAggregate = {
 export type ReviewSummary = {
   id: string;
   reviewerId: string;
+  reviewerName: string;
+  reviewerEmail: string;
   sessionId: string;
   databaseId: string;
   selectedSubjects: string[];

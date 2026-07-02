@@ -30,7 +30,8 @@ export function downloadRawReviewsCsv(aggregates: AdminAggregate[]): void {
     item.reviews.map((review) => ({
       database_id: item.record.databaseId,
       database_name: item.record.databaseName,
-      reviewer_id: review.reviewerId,
+      reviewer_name: review.reviewerName || review.reviewerId,
+      reviewer_email: review.reviewerEmail,
       selected_subjects: review.selectedSubjects.join("; "),
       choice: review.choice,
       revised_description: review.revisedDescriptionHtml,

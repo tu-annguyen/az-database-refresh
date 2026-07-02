@@ -1,4 +1,4 @@
-import { FINAL_DECISION_LABELS, resolveFinalDescription, type FinalDecision } from "@az-refresh/shared";
+import { CHOICE_LABELS, FINAL_DECISION_LABELS, resolveFinalDescription, type FinalDecision } from "@az-refresh/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { adminGetAggregates, adminSaveFinalDecision } from "../api";
@@ -139,7 +139,13 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
             {selected.reviews.map((review) => (
               <div className="border rounded-2 p-3 mb-2" key={review.id}>
                 <div className="d-flex flex-wrap gap-2 justify-content-between">
-                  <strong>{review.choice}</strong>
+                  <div>
+                    <strong>{review.reviewerName || review.reviewerEmail || review.reviewerId}</strong>
+                    <div className="small text-secondary">
+                      Voted for {CHOICE_LABELS[review.choice]}
+                      {review.reviewerEmail && review.reviewerName ? ` · ${review.reviewerEmail}` : ""}
+                    </div>
+                  </div>
                   {review.revisedDescriptionHtml && (
                     <button className="btn btn-sm btn-outline-primary" onClick={() => applyDecision("use_faculty_revision", review.id)}>
                       Use revision

@@ -209,7 +209,13 @@ export async function getAggregates(env: Env) {
   const batch = await getActiveBatch(env);
   if (!batch) return [];
   const records = await listAllRecords(env);
-  const reviewRows = await env.DB.prepare("SELECT * FROM reviews WHERE import_batch_id = ? ORDER BY updated_at DESC")
+  const reviewRows = await env.DB.prepare(
+    `SELECT r.*, v.name AS reviewer_name, v.email AS reviewer_email
+     FROM reviews r
+     JOIN reviewers v ON v.id = r.reviewer_id
+     WHERE r.import_batch_id = ?
+     ORDER BY r.updated_at DESC`
+  )
     .bind(batch.id)
     .all<ReviewRow>();
   const decisionRows = await env.DB.prepare("SELECT * FROM final_decisions WHERE import_batch_id = ?")
@@ -266,6 +272,8 @@ type RecordRow = {
 type ReviewRow = {
   id: string;
   reviewer_id: string;
+  reviewer_name?: string;
+  reviewer_email?: string;
   session_id: string;
   database_id: string;
   selected_subjects_json: string;
@@ -311,6 +319,8 @@ function reviewFromRow(row: ReviewRow) {
   return {
     id: row.id,
     reviewerId: row.reviewer_id,
+    reviewerName: row.reviewer_name ?? "",
+    reviewerEmail: row.reviewer_email ?? "",
     sessionId: row.session_id,
     databaseId: row.database_id,
     selectedSubjects: JSON.parse(row.selected_subjects_json) as string[],
