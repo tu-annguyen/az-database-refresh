@@ -88,13 +88,19 @@ function parseCsv(filename: string, buffer: ArrayBuffer): ParsedImport {
   const text = new TextDecoder().decode(buffer);
   const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
   const records = parsed.data.map((row) => ({
-    databaseId: row.database_id ?? "",
-    databaseName: row.database_name ?? "",
-    databaseUrl: row.database_url ?? "",
-    originalDescriptionHtml: row.original_description_html ?? "",
-    rewrittenDescriptionAHtml: row.rewritten_description_a_html ?? "",
-    rewrittenDescriptionBHtml: row.rewritten_description_b_html ?? "",
-    associatedSubjects: splitSubjects(row.associated_subjects ?? ""),
+    databaseId: readCsvField(row, ["database_id", "Database_ID", "ID (Required)", "ID"]),
+    databaseName: readCsvField(row, ["database_name", "Database_Name", "DATABASE NAME (Required)"]),
+    databaseUrl: readCsvField(row, ["database_url", "Database_URL", "DATABASE URL"]),
+    originalDescriptionHtml: decodeHtmlEntities(
+      readCsvField(row, ["original_description_html", "Original_Description_HTML", "DATABASE DESCRIPTION"])
+    ),
+    rewrittenDescriptionAHtml: decodeHtmlEntities(
+      readCsvField(row, ["rewritten_description_a_html", "Rewritten_Description_A_HTML"])
+    ),
+    rewrittenDescriptionBHtml: decodeHtmlEntities(
+      readCsvField(row, ["rewritten_description_b_html", "Rewritten_Description_B_HTML"])
+    ),
+    associatedSubjects: splitSubjects(readCsvField(row, ["associated_subjects", "Associated_Subjects", "ASSOCIATED SUBJECTS"])),
     springshareMetadata: {}
   }));
   return buildParsedImport(filename, "", records, parsed.errors.map((error) => error.message));
@@ -174,6 +180,31 @@ function splitSubjects(raw: string): string[] {
     .split(";")
     .map((subject) => subject.trim())
     .filter(Boolean);
+}
+
+function readCsvField(row: Record<string, string>, names: string[]): string {
+  const normalized = new Map(
+    Object.entries(row).map(([key, value]) => [normalizeHeader(key), value ?? ""])
+  );
+  for (const name of names) {
+    const value = normalized.get(normalizeHeader(name));
+    if (value !== undefined) return value.trim();
+  }
+  return "";
+}
+
+function normalizeHeader(header: string): string {
+  return header.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

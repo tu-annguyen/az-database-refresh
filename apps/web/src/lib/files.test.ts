@@ -15,4 +15,19 @@ describe("workbook import", () => {
     expect(parsed.subjects).toHaveLength(70);
     expect(Object.keys(parsed.payload.records[0]?.springshareMetadata ?? {})).toEqual([...SPRINGSHARE_HEADERS]);
   });
+
+  it("parses the staff review CSV with title-cased headers", async () => {
+    const bytes = await readFile(resolve(process.cwd(), "AZ_Databases_Descriptions_Review.csv"));
+    const file = new File([bytes], "AZ_Databases_Descriptions_Review.csv", { type: "text/csv" });
+    const parsed = await parseImportFile(file);
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.payload.records).toHaveLength(417);
+    expect(parsed.subjects).toHaveLength(70);
+    expect(parsed.warnings.filter((warning) => warning.includes("original description is blank"))).toHaveLength(3);
+    expect(parsed.warnings.filter((warning) => warning.includes("no associated subjects"))).toHaveLength(11);
+    expect(parsed.payload.records[0]?.databaseId).toBe("2361493");
+    expect(parsed.payload.records[0]?.associatedSubjects).toContain("Accounting and Tax");
+    expect(parsed.payload.records[0]?.originalDescriptionHtml).toContain('<img alt="Covered in OneSearch"');
+  });
 });
