@@ -1,0 +1,56 @@
+:root {
+  --azr-page-bg: #f7f8fb;
+  --azr-ink: #172033;
+  --azr-accent: #0f766e;
+}
+
+body {
+  background: var(--azr-page-bg);
+  color: var(--azr-ink);
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.brand-bar {
+  background: #fff;
+  border-bottom: 1px solid #dce2ea;
+}
+
+.workspace {
+  max-width: 1280px;
+}
+
+.description-box {
+  background: #fff;
+  border: 1px solid #dce2ea;
+  border-radius: 6px;
+  min-height: 9rem;
+  overflow-wrap: anywhere;
+}
+
+.description-box img {
+  max-width: 100%;
+  height: auto;
+}
+
+.queue-panel {
+  min-height: 70vh;
+}
+
+.subject-grid {
+  columns: 1;
+}
+
+@media (min-width: 768px) {
+  .subject-grid {
+    columns: 2;
+  }
+}
+
+@media (min-width: 1200px) {
+  .subject-grid {
+    columns: 3;
+  }
+}

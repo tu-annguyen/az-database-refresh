@@ -1,0 +1,2 @@
+ADMIN_TOKEN=change-me-for-local-dev
+ALLOWED_ORIGINS=http://localhost:5173

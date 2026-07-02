@@ -1,0 +1,11 @@
+name = "az-database-refresh-api"
+main = "src/index.ts"
+compatibility_date = "2024-07-25"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "az-database-refresh"
+database_id = "replace-with-cloudflare-d1-database-id"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173"
