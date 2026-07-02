@@ -13,32 +13,63 @@ export function AdminImportPanel({ adminToken }: Props) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [subjects, setSubjects] = useState<string[]>([]);
   const [status, setStatus] = useState("");
+  const [statusVariant, setStatusVariant] = useState<"info" | "success" | "danger">("info");
 
   async function handleFile(file: File) {
-    setStatus("Parsing file...");
-    const parsed = await parseImportFile(file);
-    setPayload(parsed.payload);
-    setErrors(parsed.errors);
-    setWarnings(parsed.warnings);
-    setSubjects(parsed.subjects);
-    setStatus(`Parsed ${parsed.payload.records.length} records.`);
+    try {
+      setStatusVariant("info");
+      setStatus("Parsing file...");
+      const parsed = await parseImportFile(file);
+      setPayload(parsed.payload);
+      setErrors(parsed.errors);
+      setWarnings(parsed.warnings);
+      setSubjects(parsed.subjects);
+      setStatus(`Parsed ${parsed.payload.records.length} records.`);
+    } catch (error) {
+      setStatusVariant("danger");
+      setStatus(error instanceof Error ? error.message : "Unable to parse import file.");
+    }
   }
 
   async function validateServer() {
     if (!payload) return;
-    setStatus("Validating with API...");
-    const result = await adminValidateImport(adminToken, payload);
-    setErrors(result.errors);
-    setWarnings(result.warnings);
-    setSubjects(result.subjects);
-    setStatus("Server validation complete.");
+    if (!adminToken) {
+      setStatusVariant("danger");
+      setStatus("Enter the admin token before validating with the API.");
+      return;
+    }
+    try {
+      setStatusVariant("info");
+      setStatus("Validating with API...");
+      const result = await adminValidateImport(adminToken, payload);
+      setErrors(result.errors);
+      setWarnings(result.warnings);
+      setSubjects(result.subjects);
+      setStatusVariant("success");
+      setStatus("Server validation complete.");
+    } catch (error) {
+      setStatusVariant("danger");
+      setStatus(error instanceof Error ? error.message : "Unable to validate with the API.");
+    }
   }
 
   async function commit() {
     if (!payload) return;
-    setStatus("Committing import...");
-    const result = await adminCommitImport(adminToken, payload);
-    setStatus(`Import committed as batch ${result.batchId}.`);
+    if (!adminToken) {
+      setStatusVariant("danger");
+      setStatus("Enter the admin token before committing the active import.");
+      return;
+    }
+    try {
+      setStatusVariant("info");
+      setStatus("Committing import...");
+      const result = await adminCommitImport(adminToken, payload);
+      setStatusVariant("success");
+      setStatus(`Import committed as batch ${result.batchId}.`);
+    } catch (error) {
+      setStatusVariant("danger");
+      setStatus(error instanceof Error ? error.message : "Unable to commit the active import.");
+    }
   }
 
   return (
@@ -68,16 +99,22 @@ export function AdminImportPanel({ adminToken }: Props) {
         </div>
       )}
 
+      {!adminToken && payload && (
+        <div className="alert alert-warning py-2">
+          Enter the admin token in the left panel to validate or commit through the API.
+        </div>
+      )}
+
       <div className="d-flex gap-2 mb-3">
-        <button className="btn btn-outline-primary" disabled={!payload || !adminToken} onClick={() => void validateServer()}>
+        <button className="btn btn-outline-primary" disabled={!payload} onClick={() => void validateServer()}>
           Validate with API
         </button>
-        <button className="btn btn-primary" disabled={!payload || errors.length > 0 || !adminToken} onClick={() => void commit()}>
+        <button className="btn btn-primary" disabled={!payload || errors.length > 0} onClick={() => void commit()}>
           Commit active import
         </button>
       </div>
 
-      {status && <div className="alert alert-info py-2">{status}</div>}
+      {status && <div className={`alert alert-${statusVariant} py-2`}>{status}</div>}
       <MessageList title="Errors" variant="danger" messages={errors} />
       <MessageList title="Warnings" variant="warning" messages={warnings.slice(0, 30)} />
 

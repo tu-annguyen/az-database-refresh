@@ -166,13 +166,34 @@ function buildParsedImport(
   records: DatabaseRecord[],
   parseErrors: string[]
 ): ParsedImport {
-  const validation = validateImportRecords(records);
+  const { records: importableRecords, warnings: normalizationWarnings } = normalizeImportRecords(records);
+  const validation = validateImportRecords(importableRecords);
   return {
-    payload: { filename, sourceWorkbookBase64, records },
+    payload: { filename, sourceWorkbookBase64, records: importableRecords },
     errors: [...parseErrors, ...validation.errors],
-    warnings: validation.warnings,
+    warnings: [...normalizationWarnings, ...validation.warnings],
     subjects: validation.subjects
   };
+}
+
+function normalizeImportRecords(records: DatabaseRecord[]): { records: DatabaseRecord[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const importableRecords: DatabaseRecord[] = [];
+
+  for (const record of records) {
+    const rowLabel = record.databaseName || `database_id ${record.databaseId || "unknown"}`;
+    if (!record.associatedSubjects.length) {
+      warnings.push(`${rowLabel}: skipped because it has no associated subjects`);
+      continue;
+    }
+
+    importableRecords.push({
+      ...record,
+      originalDescriptionHtml: record.originalDescriptionHtml.trim() || "Not available"
+    });
+  }
+
+  return { records: importableRecords, warnings };
 }
 
 function splitSubjects(raw: string): string[] {

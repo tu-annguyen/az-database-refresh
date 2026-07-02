@@ -11,8 +11,9 @@ describe("workbook import", () => {
     const parsed = await parseImportFile(file);
 
     expect(parsed.errors).toEqual([]);
-    expect(parsed.payload.records).toHaveLength(417);
+    expect(parsed.payload.records).toHaveLength(406);
     expect(parsed.subjects).toHaveLength(70);
+    expect(parsed.warnings.filter((warning) => warning.includes("skipped because it has no associated subjects"))).toHaveLength(11);
     expect(Object.keys(parsed.payload.records[0]?.springshareMetadata ?? {})).toEqual([...SPRINGSHARE_HEADERS]);
   });
 
@@ -22,12 +23,26 @@ describe("workbook import", () => {
     const parsed = await parseImportFile(file);
 
     expect(parsed.errors).toEqual([]);
-    expect(parsed.payload.records).toHaveLength(417);
+    expect(parsed.payload.records).toHaveLength(406);
     expect(parsed.subjects).toHaveLength(70);
-    expect(parsed.warnings.filter((warning) => warning.includes("original description is blank"))).toHaveLength(3);
-    expect(parsed.warnings.filter((warning) => warning.includes("no associated subjects"))).toHaveLength(11);
+    expect(parsed.warnings.filter((warning) => warning.includes("original description is blank"))).toHaveLength(0);
+    expect(parsed.warnings.filter((warning) => warning.includes("skipped because it has no associated subjects"))).toHaveLength(11);
     expect(parsed.payload.records[0]?.databaseId).toBe("2361493");
     expect(parsed.payload.records[0]?.associatedSubjects).toContain("Accounting and Tax");
     expect(parsed.payload.records[0]?.originalDescriptionHtml).toContain('<img alt="Covered in OneSearch"');
+  });
+
+  it("uses Not available for blank original descriptions on importable rows", async () => {
+    const csv = [
+      "Database_ID,Database_Name,Associated_Subjects,Original_Description_HTML,Rewritten_Description_A_HTML,Rewritten_Description_B_HTML,Database_URL",
+      "1,Example,History,,A,B,https://example.test"
+    ].join("\n");
+    const file = new File([csv], "blank-description.csv", { type: "text/csv" });
+    const parsed = await parseImportFile(file);
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.payload.records).toHaveLength(1);
+    expect(parsed.payload.records[0]?.originalDescriptionHtml).toBe("Not available");
   });
 });
