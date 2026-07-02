@@ -144,9 +144,9 @@ function getReviewRows(workbook: ExcelJS.Workbook): Map<string, { a: string; b: 
   const worksheet = workbook.getWorksheet(REVIEW_SHEET);
   if (!worksheet) return new Map();
   const headers = rowValues(worksheet.getRow(1));
-  const idColumn = headers.indexOf("database_id") + 1;
-  const aColumn = headers.indexOf("rewritten_description_a_html") + 1;
-  const bColumn = headers.indexOf("rewritten_description_b_html") + 1;
+  const idColumn = findHeaderColumn(headers, ["database_id", "Database_ID", "ID"]);
+  const aColumn = findHeaderColumn(headers, ["rewritten_description_a_html", "Rewritten_Description_A_HTML"]);
+  const bColumn = findHeaderColumn(headers, ["rewritten_description_b_html", "Rewritten_Description_B_HTML"]);
   const rows = new Map<string, { a: string; b: string }>();
   if (!idColumn || !aColumn || !bColumn) return rows;
   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
@@ -159,6 +159,15 @@ function getReviewRows(workbook: ExcelJS.Workbook): Map<string, { a: string; b: 
     });
   }
   return rows;
+}
+
+function findHeaderColumn(headers: string[], names: string[]): number {
+  const normalizedHeaders = headers.map(normalizeHeader);
+  for (const name of names) {
+    const index = normalizedHeaders.indexOf(normalizeHeader(name));
+    if (index >= 0) return index + 1;
+  }
+  return 0;
 }
 
 function buildParsedImport(
