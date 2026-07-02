@@ -9,10 +9,12 @@ import {
 import { createReviewerToken, requireAdmin, requireReviewer } from "./auth";
 import {
   commitImport,
+  createReviewerSession,
   getActiveBatch,
   getAggregates,
+  getCurrentReviewerSession,
+  getCurrentReviewerSessionDetail,
   listAllRecords,
-  listRecordsForSubjects,
   listSubjects,
   saveFinalDecision,
   upsertReview
@@ -96,24 +98,35 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   const reviewer = authed as AuthedReviewer;
 
   if (request.method === "GET" && url.pathname === "/reviewer/me") {
-    return jsonResponse({ reviewer, subjects: await listSubjects(env) }, {}, env, request);
+    return jsonResponse(
+      { reviewer, subjects: await listSubjects(env), currentSession: await getCurrentReviewerSession(env, reviewer.id) },
+      {},
+      env,
+      request
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/reviewer/session/current") {
+    const detail = await getCurrentReviewerSessionDetail(env, reviewer.id);
+    if (!detail) return errorResponse("No review session found", 404, env, request);
+    return jsonResponse(
+      {
+        sessionId: detail.session.id,
+        selectedSubjects: detail.session.selectedSubjects,
+        records: detail.records,
+        reviews: detail.reviews
+      },
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "POST" && url.pathname === "/reviewer/session") {
     const payload = SessionStartSchema.parse(await readJson(request));
     const batch = await getActiveBatch(env);
     if (!batch) return errorResponse("No active import batch", 409, env, request);
-    const now = new Date().toISOString();
-    const id = crypto.randomUUID();
-    await env.DB.prepare(
-      `INSERT INTO review_sessions (
-        id, reviewer_id, import_batch_id, selected_subjects_json, started_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)`
-    )
-      .bind(id, reviewer.id, batch.id, JSON.stringify(payload.selectedSubjects), now, now)
-      .run();
-    const records = await listRecordsForSubjects(env, payload.selectedSubjects);
-    return jsonResponse({ sessionId: id, records }, {}, env, request);
+    return jsonResponse(await createReviewerSession(env, reviewer.id, payload.selectedSubjects), {}, env, request);
   }
 
   if (request.method === "PUT" && url.pathname === "/reviewer/reviews") {

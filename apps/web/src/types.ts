@@ -36,3 +36,11 @@ export type Reviewer = {
   name: string;
   email: string;
 };
+
+export type ReviewerSessionSummary = {
+  id: string;
+  selectedSubjects: string[];
+  startedAt: string;
+  updatedAt: string;
+  reviewCount: number;
+};

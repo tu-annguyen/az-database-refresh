@@ -1,5 +1,5 @@
 import type { FinalDecisionUpsert, ImportCommit, ReviewUpsert } from "@az-refresh/shared";
-import type { AdminAggregate, Reviewer } from "./types";
+import type { AdminAggregate, Reviewer, ReviewerSessionSummary, ReviewSummary } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 
@@ -45,15 +45,28 @@ export async function adminSaveFinalDecision(adminToken: string, payload: FinalD
 }
 
 export async function reviewerMe(reviewerToken: string) {
-  return apiFetch<{ reviewer: Reviewer; subjects: string[] }>("/reviewer/me", {}, { reviewerToken });
+  return apiFetch<{ reviewer: Reviewer; subjects: string[]; currentSession: ReviewerSessionSummary | null }>(
+    "/reviewer/me",
+    {},
+    { reviewerToken }
+  );
 }
 
 export async function reviewerStartSession(reviewerToken: string, selectedSubjects: string[]) {
-  return apiFetch<{ sessionId: string; records: ImportCommit["records"] }>(
+  return apiFetch<{ sessionId: string; records: ImportCommit["records"]; reviews: ReviewSummary[] }>(
     "/reviewer/session",
     { method: "POST", body: { selectedSubjects } },
     { reviewerToken }
   );
+}
+
+export async function reviewerResumeSession(reviewerToken: string) {
+  return apiFetch<{
+    sessionId: string;
+    selectedSubjects: string[];
+    records: ImportCommit["records"];
+    reviews: ReviewSummary[];
+  }>("/reviewer/session/current", {}, { reviewerToken });
 }
 
 export async function reviewerSaveReview(reviewerToken: string, payload: ReviewUpsert) {

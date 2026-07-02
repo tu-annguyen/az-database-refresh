@@ -96,6 +96,57 @@ export async function listAllRecords(env: Env): Promise<DatabaseRecord[]> {
   return rows.results.map(recordFromRow);
 }
 
+export async function getCurrentReviewerSession(env: Env, reviewerId: string) {
+  const batch = await getActiveBatch(env);
+  if (!batch) return null;
+  const row = await env.DB.prepare(
+    `SELECT s.id, s.selected_subjects_json, s.started_at, s.updated_at, COUNT(r.id) AS review_count
+     FROM review_sessions s
+     LEFT JOIN reviews r ON r.session_id = s.id
+     WHERE s.reviewer_id = ? AND s.import_batch_id = ?
+     GROUP BY s.id
+     ORDER BY s.updated_at DESC
+     LIMIT 1`
+  )
+    .bind(reviewerId, batch.id)
+    .first<SessionRow>();
+  return row ? sessionFromRow(row) : null;
+}
+
+export async function getCurrentReviewerSessionDetail(env: Env, reviewerId: string) {
+  const session = await getCurrentReviewerSession(env, reviewerId);
+  if (!session) return null;
+  const records = await listRecordsForSubjects(env, session.selectedSubjects);
+  const reviews = await listReviewsForSession(env, session.id);
+  return { session, records, reviews };
+}
+
+export async function createReviewerSession(env: Env, reviewerId: string, selectedSubjects: string[]) {
+  const batch = await getActiveBatch(env);
+  if (!batch) throw new Error("No active import batch");
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE final_decisions
+       SET selected_review_id = NULL, updated_at = ?
+       WHERE import_batch_id = ?
+       AND selected_review_id IN (
+         SELECT id FROM reviews WHERE reviewer_id = ? AND import_batch_id = ?
+       )`
+    ).bind(now, batch.id, reviewerId, batch.id),
+    env.DB.prepare("DELETE FROM reviews WHERE reviewer_id = ? AND import_batch_id = ?").bind(reviewerId, batch.id),
+    env.DB.prepare("DELETE FROM review_sessions WHERE reviewer_id = ? AND import_batch_id = ?").bind(reviewerId, batch.id),
+    env.DB.prepare(
+      `INSERT INTO review_sessions (
+        id, reviewer_id, import_batch_id, selected_subjects_json, started_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(id, reviewerId, batch.id, JSON.stringify(selectedSubjects), now, now)
+  ]);
+  const records = await listRecordsForSubjects(env, selectedSubjects);
+  return { sessionId: id, records, reviews: [] };
+}
+
 export async function upsertReview(env: Env, reviewerId: string, payload: ReviewUpsert): Promise<string> {
   const batch = await getActiveBatch(env);
   if (!batch) throw new Error("No active import batch");
@@ -194,6 +245,13 @@ export async function getAggregates(env: Env) {
   });
 }
 
+async function listReviewsForSession(env: Env, sessionId: string) {
+  const rows = await env.DB.prepare("SELECT * FROM reviews WHERE session_id = ? ORDER BY updated_at DESC")
+    .bind(sessionId)
+    .all<ReviewRow>();
+  return rows.results.map(reviewFromRow);
+}
+
 type RecordRow = {
   database_id: string;
   database_name: string;
@@ -226,6 +284,14 @@ type DecisionRow = {
   finalized: number;
   finalized_at: string | null;
   updated_at: string;
+};
+
+type SessionRow = {
+  id: string;
+  selected_subjects_json: string;
+  started_at: string;
+  updated_at: string;
+  review_count: number;
 };
 
 function recordFromRow(row: RecordRow): DatabaseRecord {
@@ -265,5 +331,15 @@ function decisionFromRow(row: DecisionRow) {
     finalized: row.finalized === 1,
     finalizedAt: row.finalized_at,
     updatedAt: row.updated_at
+  };
+}
+
+function sessionFromRow(row: SessionRow) {
+  return {
+    id: row.id,
+    selectedSubjects: JSON.parse(row.selected_subjects_json) as string[],
+    startedAt: row.started_at,
+    updatedAt: row.updated_at,
+    reviewCount: row.review_count
   };
 }
