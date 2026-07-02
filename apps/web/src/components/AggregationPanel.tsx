@@ -1,5 +1,6 @@
 import { FINAL_DECISION_LABELS, resolveFinalDescription, type FinalDecision } from "@az-refresh/shared";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { adminGetAggregates, adminSaveFinalDecision } from "../api";
 import {
   downloadAggregateCsv,
@@ -11,9 +12,10 @@ import { SafeHtml } from "./SafeHtml";
 
 type Props = {
   adminToken: string;
+  onSidebarChange?: (sidebar: ReactNode | null) => void;
 };
 
-export function AggregationPanel({ adminToken }: Props) {
+export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
   const [aggregates, setAggregates] = useState<AdminAggregate[]>([]);
   const [sourceWorkbookBase64, setSourceWorkbookBase64] = useState("");
   const [selectedId, setSelectedId] = useState("");
@@ -25,7 +27,7 @@ export function AggregationPanel({ adminToken }: Props) {
 
   const selected = aggregates.find((item) => item.record.databaseId === selectedId) ?? aggregates[0];
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!adminToken) return;
     setStatus("Loading results...");
     const result = await adminGetAggregates(adminToken);
@@ -33,7 +35,7 @@ export function AggregationPanel({ adminToken }: Props) {
     setSourceWorkbookBase64(result.activeBatch?.source_workbook_base64 ?? "");
     setSelectedId((current) => current || result.aggregates[0]?.record.databaseId || "");
     setStatus("");
-  }
+  }, [adminToken]);
 
   async function saveDecision() {
     if (!selected) return;
@@ -56,9 +58,59 @@ export function AggregationPanel({ adminToken }: Props) {
     setFinalHtml(resolveFinalDescription(nextDecision, selected.record, finalHtml, review ?? null));
   }
 
+  const sidebar = useMemo(
+    () => (
+      <div className="border-top pt-3">
+        <div className="small fw-semibold text-secondary mb-2">Results controls</div>
+        <div className="d-grid gap-2 mb-3">
+          <button className="btn btn-outline-primary btn-sm" disabled={!adminToken} onClick={() => void load()}>
+            Refresh results
+          </button>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => downloadRawReviewsCsv(aggregates)}>
+            Raw reviews CSV
+          </button>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => downloadAggregateCsv(aggregates)}>
+            Summary CSV
+          </button>
+          <button
+            className="btn btn-outline-success btn-sm"
+            onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, true)}
+          >
+            Draft XLSX
+          </button>
+          <button
+            className="btn btn-success btn-sm"
+            onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, false)}
+          >
+            Final XLSX
+          </button>
+        </div>
+        <div className="small fw-semibold text-secondary mb-2">Databases</div>
+        <div className="list-group overflow-auto" style={{ maxHeight: "58vh" }}>
+          {aggregates.map((item) => (
+            <button
+              key={item.record.databaseId}
+              className={`list-group-item list-group-item-action ${selected?.record.databaseId === item.record.databaseId ? "active" : ""}`}
+              onClick={() => setSelectedId(item.record.databaseId)}
+            >
+              <div className="fw-semibold">{item.record.databaseName}</div>
+              <div className="small">Votes: {item.reviews.length} · {item.finalDecision?.finalized ? "finalized" : "open"}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    ),
+    [adminToken, aggregates, load, selected?.record.databaseId, sourceWorkbookBase64]
+  );
+
   useEffect(() => {
     void load();
-  }, [adminToken]);
+  }, [load]);
+
+  useEffect(() => {
+    onSidebarChange?.(sidebar);
+    return () => onSidebarChange?.(null);
+  }, [sidebar, onSidebarChange]);
 
   useEffect(() => {
     if (!selected) return;
@@ -70,49 +122,8 @@ export function AggregationPanel({ adminToken }: Props) {
   }, [selected?.record.databaseId]);
 
   return (
-    <div className="row g-4">
-      <aside className="col-xl-4">
-        <div className="bg-white border rounded-2 p-3">
-          <div className="d-flex gap-2 mb-3">
-            <button className="btn btn-outline-primary btn-sm" disabled={!adminToken} onClick={() => void load()}>
-              Refresh
-            </button>
-            <button className="btn btn-outline-secondary btn-sm" onClick={() => downloadRawReviewsCsv(aggregates)}>
-              Raw CSV
-            </button>
-            <button className="btn btn-outline-secondary btn-sm" onClick={() => downloadAggregateCsv(aggregates)}>
-              Summary CSV
-            </button>
-          </div>
-          <div className="d-flex gap-2 mb-3">
-            <button
-              className="btn btn-outline-success btn-sm"
-              onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, true)}
-            >
-              Draft XLSX
-            </button>
-            <button
-              className="btn btn-success btn-sm"
-              onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, false)}
-            >
-              Final XLSX
-            </button>
-          </div>
-          <div className="list-group overflow-auto" style={{ maxHeight: "70vh" }}>
-            {aggregates.map((item) => (
-              <button
-                key={item.record.databaseId}
-                className={`list-group-item list-group-item-action ${selected?.record.databaseId === item.record.databaseId ? "active" : ""}`}
-                onClick={() => setSelectedId(item.record.databaseId)}
-              >
-                <div className="fw-semibold">{item.record.databaseName}</div>
-                <div className="small">Votes: {item.reviews.length} · {item.finalDecision?.finalized ? "finalized" : "open"}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </aside>
-      <section className="col-xl-8">
+    <>
+      <section>
         {selected && (
           <div className="bg-white border rounded-2 p-4">
             <h2 className="h5 mb-1">{selected.record.databaseName}</h2>
@@ -170,7 +181,7 @@ export function AggregationPanel({ adminToken }: Props) {
           </div>
         )}
       </section>
-    </div>
+    </>
   );
 }
 

@@ -19,7 +19,7 @@ export function ReviewerApp({ initialToken }: Props) {
   const [records, setRecords] = useState<DatabaseRecord[]>([]);
   const [savedReviews, setSavedReviews] = useState<Record<string, ReviewSummary>>({});
   const [index, setIndex] = useState(0);
-  const [choice, setChoice] = useState<ReviewChoice>("rewritten_a");
+  const [choice, setChoice] = useState<ReviewChoice | null>(null);
   const [revision, setRevision] = useState("");
   const [comments, setComments] = useState("");
   const [status, setStatus] = useState("");
@@ -73,6 +73,10 @@ export function ReviewerApp({ initialToken }: Props) {
 
   async function saveAndMove(nextIndex: number) {
     if (!current || !sessionId) return;
+    if (!choice) {
+      setStatus("Select which description should be used before saving.");
+      return;
+    }
     if (choice === "edited" && !revision.trim()) {
       setStatus("A revised description is required when choosing Edited / revised version.");
       return;
@@ -188,7 +192,7 @@ export function ReviewerApp({ initialToken }: Props) {
   );
 
   function resetForm() {
-    setChoice("rewritten_a");
+    setChoice(null);
     setRevision("");
     setComments("");
   }
@@ -299,7 +303,7 @@ function ReviewQueue({
   progress: string;
   recordsCount: number;
   index: number;
-  choice: ReviewChoice;
+  choice: ReviewChoice | null;
   revision: string;
   comments: string;
   status: string;

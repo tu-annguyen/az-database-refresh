@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { AggregationPanel } from "./AggregationPanel";
 import { AdminImportPanel } from "./AdminImportPanel";
 import { ReviewerManager } from "./ReviewerManager";
@@ -9,6 +10,7 @@ type Tab = "import" | "reviewers" | "results";
 export function AdminDashboard() {
   const [adminToken, setAdminToken] = useState("");
   const [tab, setTab] = useState<Tab>("import");
+  const [resultsSidebar, setResultsSidebar] = useState<ReactNode>(null);
 
   return (
     <div className="row g-4">
@@ -30,12 +32,13 @@ export function AdminDashboard() {
               </button>
             ))}
           </div>
+          {tab === "results" && resultsSidebar && <div className="mt-3">{resultsSidebar}</div>}
         </div>
       </aside>
       <section className="col-lg-9">
         {tab === "import" && <AdminImportPanel adminToken={adminToken} />}
         {tab === "reviewers" && <ReviewerManager adminToken={adminToken} />}
-        {tab === "results" && <AggregationPanel adminToken={adminToken} />}
+        {tab === "results" && <AggregationPanel adminToken={adminToken} onSidebarChange={setResultsSidebar} />}
       </section>
     </div>
   );
