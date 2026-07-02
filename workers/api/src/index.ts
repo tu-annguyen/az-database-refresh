@@ -28,8 +28,8 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/health") return jsonResponse({ ok: true }, {}, env, request);
-      if (url.pathname.startsWith("/admin/")) return handleAdmin(request, env, url);
-      if (url.pathname.startsWith("/reviewer/")) return handleReviewer(request, env, url);
+      if (url.pathname.startsWith("/admin/")) return await handleAdmin(request, env, url);
+      if (url.pathname.startsWith("/reviewer/")) return await handleReviewer(request, env, url);
       return errorResponse("Not found", 404, env, request);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error";
