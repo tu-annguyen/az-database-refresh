@@ -5,7 +5,7 @@ compatibility_date = "2024-07-25"
 [[d1_databases]]
 binding = "DB"
 database_name = "az-database-refresh"
-database_id = "replace-with-cloudflare-d1-database-id"
+database_id = "415feca3-e924-477e-ae37-2b405e7920a6"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173"
+ALLOWED_ORIGINS = "http://localhost:5173,https://az-database-refresh.vercel.app"
