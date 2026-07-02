@@ -21,7 +21,7 @@ export async function adminCommitImport(adminToken: string, payload: ImportCommi
 }
 
 export async function adminCreateReviewer(adminToken: string, name: string, email: string) {
-  return apiFetch<{ id: string; token: string; reviewUrlPath: string }>(
+  return apiFetch<{ reviewer: Reviewer; id: string; token: string; reviewUrlPath: string | null }>(
     "/admin/reviewers",
     { method: "POST", body: { name, email } },
     { adminToken }
@@ -30,6 +30,30 @@ export async function adminCreateReviewer(adminToken: string, name: string, emai
 
 export async function adminGetReviewers(adminToken: string) {
   return apiFetch<{ reviewers: Reviewer[] }>("/admin/reviewers", {}, { adminToken });
+}
+
+export async function adminUpdateReviewer(adminToken: string, reviewerId: string, name: string, email: string) {
+  return apiFetch<{ reviewer: Reviewer }>(
+    `/admin/reviewers/${encodeURIComponent(reviewerId)}`,
+    { method: "PUT", body: { name, email } },
+    { adminToken }
+  );
+}
+
+export async function adminDeleteReviewer(adminToken: string, reviewerId: string) {
+  return apiFetch<{ reviewer: Reviewer }>(
+    `/admin/reviewers/${encodeURIComponent(reviewerId)}`,
+    { method: "DELETE" },
+    { adminToken }
+  );
+}
+
+export async function adminRegenerateReviewerLink(adminToken: string, reviewerId: string) {
+  return apiFetch<{ reviewer: Reviewer; token: string; reviewUrlPath: string | null }>(
+    `/admin/reviewers/${encodeURIComponent(reviewerId)}/regenerate-link`,
+    { method: "POST" },
+    { adminToken }
+  );
 }
 
 export async function adminGetAggregates(adminToken: string) {

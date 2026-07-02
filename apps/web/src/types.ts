@@ -37,6 +37,9 @@ export type Reviewer = {
   id: string;
   name: string;
   email: string;
+  active?: boolean;
+  createdAt?: string;
+  reviewUrlPath?: string | null;
 };
 
 export type ReviewerSessionSummary = {

@@ -1,4 +1,4 @@
-import type { DatabaseRecord, FinalDecisionUpsert, ImportCommit, ReviewUpsert } from "@az-refresh/shared";
+import type { DatabaseRecord, FinalDecisionUpsert, ImportCommit, ReviewerCreate, ReviewerUpdate, ReviewUpsert } from "@az-refresh/shared";
 import { CANONICAL_SUBJECTS, deriveSubjects } from "@az-refresh/shared";
 import type { Env } from "./types";
 
@@ -10,6 +10,91 @@ export async function getActiveBatch(env: Env) {
     record_count: number;
     created_at: string;
   }>();
+}
+
+type ReviewerTokenCredentials = {
+  token: string;
+  tokenHash: string;
+};
+
+export type ReviewerAdminSummary = {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+  createdAt: string;
+  reviewUrlPath: string | null;
+};
+
+export async function createReviewer(
+  env: Env,
+  payload: ReviewerCreate,
+  credentials: ReviewerTokenCredentials
+): Promise<ReviewerAdminSummary> {
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT INTO reviewers (id, name, email, token, token_hash, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)"
+  )
+    .bind(id, payload.name, payload.email, credentials.token, credentials.tokenHash, now)
+    .run();
+  return {
+    id,
+    name: payload.name,
+    email: payload.email,
+    active: true,
+    createdAt: now,
+    reviewUrlPath: reviewUrlPath(credentials.token)
+  };
+}
+
+export async function listReviewers(env: Env): Promise<ReviewerAdminSummary[]> {
+  const reviewers = await env.DB.prepare(
+    "SELECT id, name, email, token, active, created_at FROM reviewers ORDER BY created_at DESC"
+  ).all<ReviewerRow>();
+  return reviewers.results.map(reviewerFromRow);
+}
+
+export async function getReviewer(env: Env, reviewerId: string): Promise<ReviewerAdminSummary | null> {
+  const reviewer = await env.DB.prepare(
+    "SELECT id, name, email, token, active, created_at FROM reviewers WHERE id = ?"
+  )
+    .bind(reviewerId)
+    .first<ReviewerRow>();
+  return reviewer ? reviewerFromRow(reviewer) : null;
+}
+
+export async function updateReviewer(
+  env: Env,
+  reviewerId: string,
+  payload: ReviewerUpdate
+): Promise<ReviewerAdminSummary | null> {
+  const existing = await getReviewer(env, reviewerId);
+  if (!existing) return null;
+  await env.DB.prepare("UPDATE reviewers SET name = ?, email = ? WHERE id = ?")
+    .bind(payload.name, payload.email, reviewerId)
+    .run();
+  return await getReviewer(env, reviewerId);
+}
+
+export async function deactivateReviewer(env: Env, reviewerId: string): Promise<ReviewerAdminSummary | null> {
+  const existing = await getReviewer(env, reviewerId);
+  if (!existing) return null;
+  await env.DB.prepare("UPDATE reviewers SET active = 0 WHERE id = ?").bind(reviewerId).run();
+  return await getReviewer(env, reviewerId);
+}
+
+export async function regenerateReviewerLink(
+  env: Env,
+  reviewerId: string,
+  credentials: ReviewerTokenCredentials
+): Promise<ReviewerAdminSummary | null> {
+  const existing = await getReviewer(env, reviewerId);
+  if (!existing) return null;
+  await env.DB.prepare("UPDATE reviewers SET token = ?, token_hash = ?, active = 1 WHERE id = ?")
+    .bind(credentials.token, credentials.tokenHash, reviewerId)
+    .run();
+  return await getReviewer(env, reviewerId);
 }
 
 export async function commitImport(env: Env, payload: ImportCommit): Promise<string> {
@@ -301,6 +386,31 @@ type SessionRow = {
   updated_at: string;
   review_count: number;
 };
+
+type ReviewerRow = {
+  id: string;
+  name: string;
+  email: string;
+  token: string | null;
+  active: number;
+  created_at: string;
+};
+
+function reviewerFromRow(row: ReviewerRow): ReviewerAdminSummary {
+  const active = row.active === 1;
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    active,
+    createdAt: row.created_at,
+    reviewUrlPath: active ? reviewUrlPath(row.token) : null
+  };
+}
+
+function reviewUrlPath(token: string | null | undefined): string | null {
+  return token ? `/review/${encodeURIComponent(token)}` : null;
+}
 
 function recordFromRow(row: RecordRow): DatabaseRecord {
   return {

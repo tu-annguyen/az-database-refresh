@@ -35,6 +35,10 @@ body {
   height: auto;
 }
 
+.reviewer-link-cell {
+  min-width: 18rem;
+}
+
 .queue-panel {
   min-height: 70vh;
 }

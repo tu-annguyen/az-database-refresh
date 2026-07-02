@@ -14,7 +14,7 @@ export function errorResponse(message: string, status: number, env?: Env, reques
 export function optionsResponse(env: Env, request: Request): Response {
   const headers = new Headers();
   addCors(headers, env, request);
-  headers.set("access-control-allow-methods", "GET,POST,PUT,OPTIONS");
+  headers.set("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
   headers.set("access-control-allow-headers", "authorization,content-type");
   headers.set("access-control-max-age", "86400");
   return new Response(null, { status: 204, headers });

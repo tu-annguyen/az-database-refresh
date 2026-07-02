@@ -2,6 +2,7 @@ import {
   FinalDecisionUpsertSchema,
   ImportCommitSchema,
   ReviewerCreateSchema,
+  ReviewerUpdateSchema,
   ReviewUpsertSchema,
   SessionStartSchema,
   validateImportRecords
@@ -9,14 +10,20 @@ import {
 import { createReviewerToken, requireAdmin, requireReviewer } from "./auth";
 import {
   commitImport,
+  createReviewer,
   createReviewerSession,
+  deactivateReviewer,
   getActiveBatch,
   getAggregates,
   getCurrentReviewerSession,
   getCurrentReviewerSessionDetail,
+  getReviewer,
   listAllRecords,
+  listReviewers,
   listSubjects,
+  regenerateReviewerLink,
   saveFinalDecision,
+  updateReviewer,
   upsertReview
 } from "./db";
 import { errorResponse, jsonResponse, optionsResponse, readJson } from "./http";
@@ -57,22 +64,46 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
 
   if (request.method === "POST" && url.pathname === "/admin/reviewers") {
     const payload = ReviewerCreateSchema.parse(await readJson(request));
-    const now = new Date().toISOString();
-    const { token, tokenHash } = await createReviewerToken();
-    const id = crypto.randomUUID();
-    await env.DB.prepare(
-      "INSERT INTO reviewers (id, name, email, token_hash, active, created_at) VALUES (?, ?, ?, ?, 1, ?)"
-    )
-      .bind(id, payload.name, payload.email, tokenHash, now)
-      .run();
-    return jsonResponse({ id, token, reviewUrlPath: `/review/${token}` }, {}, env, request);
+    const credentials = await createReviewerToken();
+    const reviewer = await createReviewer(env, payload, credentials);
+    return jsonResponse(
+      { reviewer, id: reviewer.id, token: credentials.token, reviewUrlPath: reviewer.reviewUrlPath },
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "GET" && url.pathname === "/admin/reviewers") {
-    const reviewers = await env.DB.prepare(
-      "SELECT id, name, email, active, created_at FROM reviewers ORDER BY created_at DESC"
-    ).all();
-    return jsonResponse({ reviewers: reviewers.results }, {}, env, request);
+    return jsonResponse({ reviewers: await listReviewers(env) }, {}, env, request);
+  }
+
+  const reviewerRoute = parseReviewerRoute(url.pathname);
+
+  if (reviewerRoute && !reviewerRoute.action && request.method === "GET") {
+    const reviewer = await getReviewer(env, reviewerRoute.id);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer }, {}, env, request);
+  }
+
+  if (reviewerRoute && !reviewerRoute.action && request.method === "PUT") {
+    const payload = ReviewerUpdateSchema.parse(await readJson(request));
+    const reviewer = await updateReviewer(env, reviewerRoute.id, payload);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer }, {}, env, request);
+  }
+
+  if (reviewerRoute && !reviewerRoute.action && request.method === "DELETE") {
+    const reviewer = await deactivateReviewer(env, reviewerRoute.id);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer }, {}, env, request);
+  }
+
+  if (reviewerRoute?.action === "regenerate-link" && request.method === "POST") {
+    const credentials = await createReviewerToken();
+    const reviewer = await regenerateReviewerLink(env, reviewerRoute.id, credentials);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer, token: credentials.token, reviewUrlPath: reviewer.reviewUrlPath }, {}, env, request);
   }
 
   if (request.method === "GET" && url.pathname === "/admin/records") {
@@ -136,6 +167,18 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   }
 
   return errorResponse("Reviewer route not found", 404, env, request);
+}
+
+function parseReviewerRoute(pathname: string): { id: string; action?: string } | null {
+  const match = pathname.match(/^\/admin\/reviewers\/([^/]+)(?:\/([^/]+))?$/);
+  if (!match) return null;
+  const id = match[1];
+  if (!id) return null;
+  const action = match[2];
+  return {
+    id: decodeURIComponent(id),
+    action: action ? decodeURIComponent(action) : undefined
+  };
 }
 
 function withCors(response: Response, env: Env, request: Request): Response {
