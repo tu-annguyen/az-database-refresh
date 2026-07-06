@@ -127,7 +127,8 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
         {selected && (
           <div className="bg-white border rounded-2 p-4">
             <h2 className="h5 mb-1">{selected.record.databaseName}</h2>
-            <div className="text-secondary small mb-3">ID {selected.record.databaseId}</div>
+            <div className="text-secondary small mb-1">ID {selected.record.databaseId}</div>
+            <DatabaseUrl url={selected.record.databaseUrl} />
             <VoteSummary item={selected} />
             <div className="row g-3 mt-1">
               <Description title="Original" html={selected.record.originalDescriptionHtml} onUse={() => applyDecision("use_original")} />
@@ -189,6 +190,32 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
       </section>
     </>
   );
+}
+
+function DatabaseUrl({ url }: { url: string }) {
+  if (!url) return <div className="mb-3" />;
+  const linkable = isHttpUrl(url);
+  return (
+    <div className="small mb-3">
+      <span className="text-secondary">Database URL: </span>
+      {linkable ? (
+        <a className="text-break" href={url} target="_blank" rel="noreferrer">
+          {url}
+        </a>
+      ) : (
+        <span className="text-break">{url}</span>
+      )}
+    </div>
+  );
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function VoteSummary({ item }: { item: AdminAggregate }) {
