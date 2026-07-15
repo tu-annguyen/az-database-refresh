@@ -6,6 +6,7 @@
   "scripts": {
     "dev:web": "npm --workspace apps/web run dev",
     "dev:api": "npm --workspace workers/api run dev",
+    "dev": "concurrently --kill-others-on-fail -n web,api -c cyan,magenta \"npm run dev:web\" \"npm run dev:api\"",
     "build": "npm --workspaces --if-present run build",
     "test": "vitest run",
     "typecheck": "npm --workspaces --if-present run typecheck"
@@ -20,5 +21,8 @@
     "typescript": "^5.9.3",
     "vitest": "^2.1.9",
     "wrangler": "^4.107.0"
+  },
+  "dependencies": {
+    "concurrently": "^10.0.3"
   }
 }
