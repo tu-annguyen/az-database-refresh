@@ -8,6 +8,7 @@ import {
   downloadSpringshareWorkbook
 } from "../lib/files";
 import type { AdminAggregate } from "../types";
+import { DatabaseFilterCombobox } from "./DatabaseFilterCombobox";
 import { SafeHtml } from "./SafeHtml";
 
 type Props = {
@@ -86,18 +87,11 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
           </button>
         </div>
         <div className="small fw-semibold text-secondary mb-2">Databases</div>
-        <div className="list-group overflow-auto" style={{ maxHeight: "58vh" }}>
-          {aggregates.map((item) => (
-            <button
-              key={item.record.databaseId}
-              className={`list-group-item list-group-item-action ${selected?.record.databaseId === item.record.databaseId ? "active" : ""}`}
-              onClick={() => setSelectedId(item.record.databaseId)}
-            >
-              <div className="fw-semibold">{item.record.databaseName}</div>
-              <div className="small">Votes: {item.reviews.length} · {item.finalDecision?.finalized ? "finalized" : "open"}</div>
-            </button>
-          ))}
-        </div>
+        <DatabaseFilterCombobox
+          aggregates={aggregates}
+          selectedId={selected?.record.databaseId}
+          onSelect={setSelectedId}
+        />
       </div>
     ),
     [adminToken, aggregates, load, selected?.record.databaseId, sourceWorkbookBase64]
