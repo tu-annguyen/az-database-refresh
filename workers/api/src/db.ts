@@ -157,21 +157,6 @@ export async function listSubjects(env: Env): Promise<string[]> {
   return rows.results.map((row) => row.name);
 }
 
-export async function listRecordsForSubjects(env: Env, subjects: string[]): Promise<DatabaseRecord[]> {
-  const batch = await getActiveBatch(env);
-  if (!batch) return [];
-  const placeholders = subjects.map(() => "?").join(",");
-  const rows = await env.DB.prepare(
-    `SELECT DISTINCT r.* FROM database_records r
-     JOIN database_subjects ds ON ds.import_batch_id = r.import_batch_id AND ds.database_id = r.database_id
-     WHERE r.import_batch_id = ? AND ds.subject_name IN (${placeholders})
-     ORDER BY r.database_name`
-  )
-    .bind(batch.id, ...subjects)
-    .all<RecordRow>();
-  return rows.results.map(recordFromRow);
-}
-
 export async function listAllRecords(env: Env): Promise<DatabaseRecord[]> {
   const batch = await getActiveBatch(env);
   if (!batch) return [];
@@ -181,11 +166,58 @@ export async function listAllRecords(env: Env): Promise<DatabaseRecord[]> {
   return rows.results.map(recordFromRow);
 }
 
+export async function listDatabaseOptions(env: Env): Promise<Array<{ databaseId: string; databaseName: string }>> {
+  const batch = await getActiveBatch(env);
+  if (!batch) return [];
+  const rows = await env.DB.prepare(
+    "SELECT database_id, database_name FROM database_records WHERE import_batch_id = ? ORDER BY database_name"
+  )
+    .bind(batch.id)
+    .all<{ database_id: string; database_name: string }>();
+  return rows.results.map((row) => ({ databaseId: row.database_id, databaseName: row.database_name }));
+}
+
+export async function listRecordsForSelection(
+  env: Env,
+  subjects: string[],
+  databaseIds: string[]
+): Promise<DatabaseRecord[]> {
+  const batch = await getActiveBatch(env);
+  if (!batch) return [];
+  const conditions: string[] = [];
+  const bindings: string[] = [batch.id];
+  if (subjects.length) {
+    conditions.push(
+      `EXISTS (
+        SELECT 1 FROM database_subjects ds
+        WHERE ds.import_batch_id = r.import_batch_id
+          AND ds.database_id = r.database_id
+          AND ds.subject_name IN (${subjects.map(() => "?").join(",")})
+      )`
+    );
+    bindings.push(...subjects);
+  }
+  if (databaseIds.length) {
+    conditions.push(`r.database_id IN (${databaseIds.map(() => "?").join(",")})`);
+    bindings.push(...databaseIds);
+  }
+  if (!conditions.length) return [];
+  const rows = await env.DB.prepare(
+    `SELECT r.* FROM database_records r
+     WHERE r.import_batch_id = ? AND (${conditions.join(" OR ")})
+     ORDER BY r.database_name`
+  )
+    .bind(...bindings)
+    .all<RecordRow>();
+  return rows.results.map(recordFromRow);
+}
+
 export async function getCurrentReviewerSession(env: Env, reviewerId: string) {
   const batch = await getActiveBatch(env);
   if (!batch) return null;
   const row = await env.DB.prepare(
-    `SELECT s.id, s.selected_subjects_json, s.started_at, s.updated_at, COUNT(r.id) AS review_count
+    `SELECT s.id, s.selected_subjects_json, s.selected_database_ids_json, s.started_at, s.updated_at,
+            COUNT(r.id) AS review_count
      FROM review_sessions s
      LEFT JOIN reviews r ON r.session_id = s.id
      WHERE s.reviewer_id = ? AND s.import_batch_id = ?
@@ -201,12 +233,17 @@ export async function getCurrentReviewerSession(env: Env, reviewerId: string) {
 export async function getCurrentReviewerSessionDetail(env: Env, reviewerId: string) {
   const session = await getCurrentReviewerSession(env, reviewerId);
   if (!session) return null;
-  const records = await listRecordsForSubjects(env, session.selectedSubjects);
+  const records = await listRecordsForSelection(env, session.selectedSubjects, session.selectedDatabaseIds);
   const reviews = await listReviewsForSession(env, session.id);
   return { session, records, reviews };
 }
 
-export async function createReviewerSession(env: Env, reviewerId: string, selectedSubjects: string[]) {
+export async function createReviewerSession(
+  env: Env,
+  reviewerId: string,
+  selectedSubjects: string[],
+  selectedDatabaseIds: string[]
+) {
   const batch = await getActiveBatch(env);
   if (!batch) throw new Error("No active import batch");
   const now = new Date().toISOString();
@@ -224,11 +261,11 @@ export async function createReviewerSession(env: Env, reviewerId: string, select
     env.DB.prepare("DELETE FROM review_sessions WHERE reviewer_id = ? AND import_batch_id = ?").bind(reviewerId, batch.id),
     env.DB.prepare(
       `INSERT INTO review_sessions (
-        id, reviewer_id, import_batch_id, selected_subjects_json, started_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(id, reviewerId, batch.id, JSON.stringify(selectedSubjects), now, now)
+        id, reviewer_id, import_batch_id, selected_subjects_json, selected_database_ids_json, started_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, reviewerId, batch.id, JSON.stringify(selectedSubjects), JSON.stringify(selectedDatabaseIds), now, now)
   ]);
-  const records = await listRecordsForSubjects(env, selectedSubjects);
+  const records = await listRecordsForSelection(env, selectedSubjects, selectedDatabaseIds);
   return { sessionId: id, records, reviews: [] };
 }
 
@@ -382,6 +419,7 @@ type DecisionRow = {
 type SessionRow = {
   id: string;
   selected_subjects_json: string;
+  selected_database_ids_json: string;
   started_at: string;
   updated_at: string;
   review_count: number;
@@ -458,6 +496,7 @@ function sessionFromRow(row: SessionRow) {
   return {
     id: row.id,
     selectedSubjects: JSON.parse(row.selected_subjects_json) as string[],
+    selectedDatabaseIds: JSON.parse(row.selected_database_ids_json) as string[],
     startedAt: row.started_at,
     updatedAt: row.updated_at,
     reviewCount: row.review_count

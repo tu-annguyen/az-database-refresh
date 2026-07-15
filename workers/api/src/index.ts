@@ -19,6 +19,7 @@ import {
   getCurrentReviewerSessionDetail,
   getReviewer,
   listAllRecords,
+  listDatabaseOptions,
   listReviewers,
   listSubjects,
   regenerateReviewerLink,
@@ -130,7 +131,12 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
 
   if (request.method === "GET" && url.pathname === "/reviewer/me") {
     return jsonResponse(
-      { reviewer, subjects: await listSubjects(env), currentSession: await getCurrentReviewerSession(env, reviewer.id) },
+      {
+        reviewer,
+        subjects: await listSubjects(env),
+        databases: await listDatabaseOptions(env),
+        currentSession: await getCurrentReviewerSession(env, reviewer.id)
+      },
       {},
       env,
       request
@@ -144,6 +150,7 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
       {
         sessionId: detail.session.id,
         selectedSubjects: detail.session.selectedSubjects,
+        selectedDatabaseIds: detail.session.selectedDatabaseIds,
         records: detail.records,
         reviews: detail.reviews
       },
@@ -157,7 +164,12 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
     const payload = SessionStartSchema.parse(await readJson(request));
     const batch = await getActiveBatch(env);
     if (!batch) return errorResponse("No active import batch", 409, env, request);
-    return jsonResponse(await createReviewerSession(env, reviewer.id, payload.selectedSubjects), {}, env, request);
+    return jsonResponse(
+      await createReviewerSession(env, reviewer.id, payload.selectedSubjects, payload.selectedDatabaseIds),
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "PUT" && url.pathname === "/reviewer/reviews") {

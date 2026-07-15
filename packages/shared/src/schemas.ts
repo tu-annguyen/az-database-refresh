@@ -43,9 +43,14 @@ export const ReviewerCreateSchema = ReviewerIdentitySchema;
 
 export const ReviewerUpdateSchema = ReviewerIdentitySchema;
 
-export const SessionStartSchema = z.object({
-  selectedSubjects: z.array(z.string().min(1)).min(1)
-});
+export const SessionStartSchema = z
+  .object({
+    selectedSubjects: z.array(z.string().min(1)),
+    selectedDatabaseIds: z.array(z.string().min(1)).default([])
+  })
+  .refine((value) => value.selectedSubjects.length > 0 || value.selectedDatabaseIds.length > 0, {
+    message: "Select at least one subject or database."
+  });
 
 export const ReviewUpsertSchema = z.object({
   sessionId: z.string().min(1),

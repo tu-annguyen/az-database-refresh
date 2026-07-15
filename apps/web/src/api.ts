@@ -1,5 +1,5 @@
 import type { FinalDecisionUpsert, ImportCommit, ReviewUpsert } from "@az-refresh/shared";
-import type { AdminAggregate, Reviewer, ReviewerSessionSummary, ReviewSummary } from "./types";
+import type { AdminAggregate, DatabaseOption, Reviewer, ReviewerSessionSummary, ReviewSummary } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 
@@ -69,17 +69,26 @@ export async function adminSaveFinalDecision(adminToken: string, payload: FinalD
 }
 
 export async function reviewerMe(reviewerToken: string) {
-  return apiFetch<{ reviewer: Reviewer; subjects: string[]; currentSession: ReviewerSessionSummary | null }>(
+  return apiFetch<{
+    reviewer: Reviewer;
+    subjects: string[];
+    databases: DatabaseOption[];
+    currentSession: ReviewerSessionSummary | null;
+  }>(
     "/reviewer/me",
     {},
     { reviewerToken }
   );
 }
 
-export async function reviewerStartSession(reviewerToken: string, selectedSubjects: string[]) {
+export async function reviewerStartSession(
+  reviewerToken: string,
+  selectedSubjects: string[],
+  selectedDatabaseIds: string[]
+) {
   return apiFetch<{ sessionId: string; records: ImportCommit["records"]; reviews: ReviewSummary[] }>(
     "/reviewer/session",
-    { method: "POST", body: { selectedSubjects } },
+    { method: "POST", body: { selectedSubjects, selectedDatabaseIds } },
     { reviewerToken }
   );
 }
@@ -88,6 +97,7 @@ export async function reviewerResumeSession(reviewerToken: string) {
   return apiFetch<{
     sessionId: string;
     selectedSubjects: string[];
+    selectedDatabaseIds: string[];
     records: ImportCommit["records"];
     reviews: ReviewSummary[];
   }>("/reviewer/session/current", {}, { reviewerToken });

@@ -43,6 +43,18 @@ body {
   min-height: 70vh;
 }
 
+.database-options {
+  z-index: 10;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.database-remove {
+  width: 0.55rem;
+  height: 0.55rem;
+  font-size: 0.55rem;
+}
+
 .subject-grid {
   columns: 1;
 }

@@ -45,7 +45,13 @@ export type Reviewer = {
 export type ReviewerSessionSummary = {
   id: string;
   selectedSubjects: string[];
+  selectedDatabaseIds: string[];
   startedAt: string;
   updatedAt: string;
   reviewCount: number;
+};
+
+export type DatabaseOption = {
+  databaseId: string;
+  databaseName: string;
 };

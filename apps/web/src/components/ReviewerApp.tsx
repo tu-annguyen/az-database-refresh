@@ -1,7 +1,8 @@
 import { CHOICE_LABELS, type DatabaseRecord, type ReviewChoice } from "@az-refresh/shared";
 import { useEffect, useMemo, useState } from "react";
 import { reviewerMe, reviewerResumeSession, reviewerSaveReview, reviewerStartSession } from "../api";
-import type { ReviewerSessionSummary, ReviewSummary } from "../types";
+import type { DatabaseOption, ReviewerSessionSummary, ReviewSummary } from "../types";
+import { DatabaseCombobox } from "./DatabaseCombobox";
 import { SafeHtml } from "./SafeHtml";
 import { TokenInput } from "./TokenInput";
 
@@ -13,8 +14,10 @@ export function ReviewerApp({ initialToken }: Props) {
   const [token, setToken] = useState(initialToken);
   const [name, setName] = useState("");
   const [subjects, setSubjects] = useState<string[]>([]);
+  const [databases, setDatabases] = useState<DatabaseOption[]>([]);
   const [currentSession, setCurrentSession] = useState<ReviewerSessionSummary | null>(null);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const [selectedDatabaseIds, setSelectedDatabaseIds] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [records, setRecords] = useState<DatabaseRecord[]>([]);
   const [savedReviews, setSavedReviews] = useState<Record<string, ReviewSummary>>({});
@@ -33,8 +36,10 @@ export function ReviewerApp({ initialToken }: Props) {
       const result = await reviewerMe(token);
       setName(result.reviewer.name);
       setSubjects(result.subjects);
+      setDatabases(result.databases);
       setCurrentSession(result.currentSession);
       setSelectedSubjects(result.currentSession?.selectedSubjects ?? []);
+      setSelectedDatabaseIds(result.currentSession?.selectedDatabaseIds ?? []);
       setStatus("");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to load reviewer.");
@@ -45,7 +50,13 @@ export function ReviewerApp({ initialToken }: Props) {
     try {
       setStatus("Loading saved session...");
       const result = await reviewerResumeSession(token);
-      enterSession(result.sessionId, result.selectedSubjects, result.records, result.reviews);
+      enterSession(
+        result.sessionId,
+        result.selectedSubjects,
+        result.selectedDatabaseIds,
+        result.records,
+        result.reviews
+      );
       setStatus(`Resumed ${result.records.length} databases.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to resume session.");
@@ -55,12 +66,13 @@ export function ReviewerApp({ initialToken }: Props) {
   async function startSession() {
     try {
       setStatus("Building review queue...");
-      const result = await reviewerStartSession(token, selectedSubjects);
+      const result = await reviewerStartSession(token, selectedSubjects, selectedDatabaseIds);
       const now = new Date().toISOString();
-      enterSession(result.sessionId, selectedSubjects, result.records, result.reviews);
+      enterSession(result.sessionId, selectedSubjects, selectedDatabaseIds, result.records, result.reviews);
       setCurrentSession({
         id: result.sessionId,
         selectedSubjects,
+        selectedDatabaseIds,
         startedAt: now,
         updatedAt: now,
         reviewCount: 0
@@ -125,6 +137,7 @@ export function ReviewerApp({ initialToken }: Props) {
   function enterSession(
     nextSessionId: string,
     nextSelectedSubjects: string[],
+    nextSelectedDatabaseIds: string[],
     nextRecords: DatabaseRecord[],
     reviews: ReviewSummary[]
   ) {
@@ -132,6 +145,7 @@ export function ReviewerApp({ initialToken }: Props) {
     const firstUnreviewed = nextRecords.findIndex((record) => !reviewMap[record.databaseId]);
     setSessionId(nextSessionId);
     setSelectedSubjects(nextSelectedSubjects);
+    setSelectedDatabaseIds(nextSelectedDatabaseIds);
     setRecords(nextRecords);
     setSavedReviews(reviewMap);
     setIndex(firstUnreviewed >= 0 ? firstUnreviewed : 0);
@@ -166,11 +180,14 @@ export function ReviewerApp({ initialToken }: Props) {
           <ReviewerHome
             currentSession={currentSession}
             subjects={subjects}
+            databases={databases}
             selected={selectedSubjects}
+            selectedDatabaseIds={selectedDatabaseIds}
             onChange={setSelectedSubjects}
+            onDatabaseChange={setSelectedDatabaseIds}
             onResume={() => void resumeSession()}
             onStart={() => void startSession()}
-            disabled={!token || selectedSubjects.length === 0}
+            disabled={!token || (selectedSubjects.length === 0 && selectedDatabaseIds.length === 0)}
           />
         ) : (
           <ReviewQueue
@@ -203,17 +220,23 @@ export function ReviewerApp({ initialToken }: Props) {
 function ReviewerHome({
   currentSession,
   subjects,
+  databases,
   selected,
+  selectedDatabaseIds,
   disabled,
   onChange,
+  onDatabaseChange,
   onResume,
   onStart
 }: {
   currentSession: ReviewerSessionSummary | null;
   subjects: string[];
+  databases: DatabaseOption[];
   selected: string[];
+  selectedDatabaseIds: string[];
   disabled: boolean;
   onChange: (subjects: string[]) => void;
+  onDatabaseChange: (databaseIds: string[]) => void;
   onResume: () => void;
   onStart: () => void;
 }) {
@@ -226,6 +249,12 @@ function ReviewerHome({
               <h2 className="h5 mb-1">Previous session</h2>
               <div className="text-secondary small">Last modified {formatDate(currentSession.updatedAt)}</div>
               <div className="mt-2">{currentSession.selectedSubjects.join("; ")}</div>
+              {currentSession.selectedDatabaseIds.length > 0 && (
+                <div className="small text-secondary mt-1">
+                  {currentSession.selectedDatabaseIds.length} individually selected database
+                  {currentSession.selectedDatabaseIds.length === 1 ? "" : "s"}
+                </div>
+              )}
               <div className="small text-secondary mt-1">{currentSession.reviewCount} saved reviews</div>
             </div>
             <button className="btn btn-primary" onClick={onResume}>
@@ -236,8 +265,11 @@ function ReviewerHome({
       )}
       <SubjectSelector
         subjects={subjects}
+        databases={databases}
         selected={selected}
+        selectedDatabaseIds={selectedDatabaseIds}
         onChange={onChange}
+        onDatabaseChange={onDatabaseChange}
         onStart={onStart}
         disabled={disabled}
         buttonLabel={currentSession ? "Start new session" : "Start review"}
@@ -248,16 +280,22 @@ function ReviewerHome({
 
 function SubjectSelector({
   subjects,
+  databases,
   selected,
+  selectedDatabaseIds,
   disabled,
   onChange,
+  onDatabaseChange,
   onStart,
   buttonLabel
 }: {
   subjects: string[];
+  databases: DatabaseOption[];
   selected: string[];
+  selectedDatabaseIds: string[];
   disabled: boolean;
   onChange: (subjects: string[]) => void;
+  onDatabaseChange: (databaseIds: string[]) => void;
   onStart: () => void;
   buttonLabel: string;
 }) {
@@ -278,6 +316,9 @@ function SubjectSelector({
             <span className="form-check-label">{subject}</span>
           </label>
         ))}
+      </div>
+      <div className="border-top pt-3 mb-3">
+        <DatabaseCombobox databases={databases} selectedIds={selectedDatabaseIds} onChange={onDatabaseChange} />
       </div>
       <button className="btn btn-primary" disabled={disabled} onClick={onStart}>
         {buttonLabel}

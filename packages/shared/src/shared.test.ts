@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SPRINGSHARE_HEADERS } from "./constants";
 import { resolveFinalDescription } from "./finalDescription";
+import { SessionStartSchema } from "./schemas";
 import { stripDangerousHtml } from "./sanitize";
 import { splitSubjects } from "./subjects";
 import { validateSpringshareHeaders } from "./validation";
@@ -32,5 +33,15 @@ describe("shared helpers", () => {
       springshareMetadata: {}
     };
     expect(resolveFinalDescription("use_rewritten_b", record, "", null)).toBe("B");
+  });
+
+  it("starts a reviewer session from subjects, individual databases, or both", () => {
+    expect(SessionStartSchema.parse({ selectedSubjects: ["History"] }).selectedDatabaseIds).toEqual([]);
+    expect(SessionStartSchema.parse({ selectedSubjects: [], selectedDatabaseIds: ["db-1"] })).toMatchObject({
+      selectedDatabaseIds: ["db-1"]
+    });
+    expect(() => SessionStartSchema.parse({ selectedSubjects: [], selectedDatabaseIds: [] })).toThrow(
+      "Select at least one subject or database."
+    );
   });
 });
