@@ -87,6 +87,14 @@ export async function adminUpdateDatabaseStatus(adminToken: string, databaseId: 
   );
 }
 
+export async function adminUpdateDatabaseName(adminToken: string, databaseId: string, databaseName: string) {
+  return apiFetch<{ record: AdminDatabaseRecord }>(
+    `/admin/records/${encodeURIComponent(databaseId)}/name`,
+    { method: "PUT", body: { databaseName } },
+    { adminToken }
+  );
+}
+
 export async function adminSaveFinalDecision(adminToken: string, payload: FinalDecisionUpsert) {
   return apiFetch<{ ok: true }>("/admin/final-decisions", { method: "PUT", body: payload }, { adminToken });
 }

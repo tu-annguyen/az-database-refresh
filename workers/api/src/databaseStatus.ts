@@ -54,6 +54,28 @@ export async function updateDatabaseStatus(
   return row ? statusFromRow(row) : null;
 }
 
+export async function updateDatabaseName(
+  env: Env,
+  databaseId: string,
+  databaseName: string
+): Promise<DatabaseAdminSummary | null> {
+  const batch = await getActiveBatch(env);
+  if (!batch) return null;
+  await env.DB.prepare(
+    "UPDATE database_records SET database_name = ? WHERE import_batch_id = ? AND database_id = ?"
+  )
+    .bind(databaseName, batch.id, databaseId)
+    .run();
+  const row = await env.DB.prepare(
+    `SELECT database_id, database_name, active
+     FROM database_records
+     WHERE import_batch_id = ? AND database_id = ?`
+  )
+    .bind(batch.id, databaseId)
+    .first<DatabaseStatusRow>();
+  return row ? statusFromRow(row) : null;
+}
+
 function statusFromRow(row: DatabaseStatusRow): DatabaseAdminSummary {
   return {
     databaseId: row.database_id,

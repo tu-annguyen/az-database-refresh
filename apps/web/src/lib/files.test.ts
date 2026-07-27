@@ -65,7 +65,20 @@ describe("workbook export", () => {
 
     expect(worksheet?.rowCount).toBe(3);
     expect(worksheet?.getRow(3).getCell(1).value).toBe("active");
+    expect(worksheet?.getRow(3).getCell(2).value).toBe("Active Database");
     expect(worksheet?.getRow(3).getCell(11).value).toBe("<p>Final description</p>");
+  });
+
+  it("writes an edited database name to the exported workbook", async () => {
+    const source = await buildExportWorkbookBase64();
+    const workbook = await buildSpringshareWorkbook(
+      source,
+      [aggregate("active", "Renamed Database")],
+      ["inactive"],
+      true
+    );
+
+    expect(workbook.getWorksheet("Import Template")?.getRow(3).getCell(2).value).toBe("Renamed Database");
   });
 });
 

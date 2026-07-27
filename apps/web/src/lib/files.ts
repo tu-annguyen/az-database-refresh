@@ -95,8 +95,13 @@ export async function buildSpringshareWorkbook(
       .filter((item) => draft || item.finalDecision?.finalized)
       .map((item) => [item.record.databaseId, item.finalDecision?.finalDescriptionHtml ?? ""])
   );
+  const databaseNameById = new Map(
+    aggregates.map((item) => [item.record.databaseId, item.record.databaseName])
+  );
   for (let row = 3; row <= worksheet.rowCount; row += 1) {
     const id = cellText(worksheet.getRow(row).getCell(1).value);
+    const databaseName = databaseNameById.get(id);
+    if (databaseName !== undefined) worksheet.getRow(row).getCell(2).value = databaseName;
     const finalDescription = finalById.get(id);
     if (finalDescription !== undefined && finalDescription !== "") {
       worksheet.getRow(row).getCell(11).value = finalDescription;

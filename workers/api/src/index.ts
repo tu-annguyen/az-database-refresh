@@ -1,4 +1,5 @@
 import {
+  DatabaseRecordNameUpdateSchema,
   DatabaseRecordStatusSchema,
   FinalDecisionUpsertSchema,
   ImportCommitSchema,
@@ -28,7 +29,12 @@ import {
   updateReviewer,
   upsertReview
 } from "./db";
-import { listAdminRecords, listInactiveDatabaseIds, updateDatabaseStatus } from "./databaseStatus";
+import {
+  listAdminRecords,
+  listInactiveDatabaseIds,
+  updateDatabaseName,
+  updateDatabaseStatus
+} from "./databaseStatus";
 import { errorResponse, jsonResponse, optionsResponse, readJson } from "./http";
 import type { AuthedReviewer, Env } from "./types";
 
@@ -120,6 +126,14 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
   if (databaseStatusRoute && request.method === "PUT") {
     const payload = DatabaseRecordStatusSchema.parse(await readJson(request));
     const record = await updateDatabaseStatus(env, databaseStatusRoute.id, payload.active);
+    if (!record) return errorResponse("Database not found in the active import batch", 404, env, request);
+    return jsonResponse({ record }, {}, env, request);
+  }
+
+  const databaseNameRoute = parseDatabaseNameRoute(url.pathname);
+  if (databaseNameRoute && request.method === "PUT") {
+    const payload = DatabaseRecordNameUpdateSchema.parse(await readJson(request));
+    const record = await updateDatabaseName(env, databaseNameRoute.id, payload.databaseName);
     if (!record) return errorResponse("Database not found in the active import batch", 404, env, request);
     return jsonResponse({ record }, {}, env, request);
   }
@@ -226,6 +240,12 @@ function parseReviewerRoute(pathname: string): { id: string; action?: string } |
 
 function parseDatabaseStatusRoute(pathname: string): { id: string } | null {
   const match = pathname.match(/^\/admin\/records\/([^/]+)\/status$/);
+  const id = match?.[1];
+  return id ? { id: decodeURIComponent(id) } : null;
+}
+
+function parseDatabaseNameRoute(pathname: string): { id: string } | null {
+  const match = pathname.match(/^\/admin\/records\/([^/]+)\/name$/);
   const id = match?.[1];
   return id ? { id: decodeURIComponent(id) } : null;
 }

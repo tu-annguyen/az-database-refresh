@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SPRINGSHARE_HEADERS } from "./constants";
 import { resolveFinalDescription } from "./finalDescription";
 import { hasOneSearchIcon, ONESEARCH_ICON_HTML, setOneSearchIcon } from "./oneSearchIcon";
-import { SessionStartSchema } from "./schemas";
+import { DatabaseRecordNameUpdateSchema, SessionStartSchema } from "./schemas";
 import { stripDangerousHtml } from "./sanitize";
 import { splitSubjects } from "./subjects";
 import { validateSpringshareHeaders } from "./validation";
@@ -60,6 +60,15 @@ describe("shared helpers", () => {
     });
     expect(() => SessionStartSchema.parse({ selectedSubjects: [], selectedDatabaseIds: [] })).toThrow(
       "Select at least one subject or database."
+    );
+  });
+
+  it("trims database name updates and rejects blank names", () => {
+    expect(DatabaseRecordNameUpdateSchema.parse({ databaseName: "  Academic Search  " })).toEqual({
+      databaseName: "Academic Search"
+    });
+    expect(() => DatabaseRecordNameUpdateSchema.parse({ databaseName: "   " })).toThrow(
+      "Database name is required."
     );
   });
 });

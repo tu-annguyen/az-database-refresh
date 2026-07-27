@@ -73,6 +73,10 @@ export const DatabaseRecordStatusSchema = z.object({
   active: z.boolean()
 });
 
+export const DatabaseRecordNameUpdateSchema = z.object({
+  databaseName: z.string().trim().min(1, "Database name is required.").max(255, "Database name is too long.")
+});
+
 export type ReviewChoice = z.infer<typeof ReviewChoiceSchema>;
 export type FinalDecision = z.infer<typeof FinalDecisionSchema>;
 export type DatabaseRecord = z.infer<typeof DatabaseRecordSchema>;
@@ -82,6 +86,7 @@ export type ReviewerUpdate = z.infer<typeof ReviewerUpdateSchema>;
 export type ReviewUpsert = z.infer<typeof ReviewUpsertSchema>;
 export type FinalDecisionUpsert = z.infer<typeof FinalDecisionUpsertSchema>;
 export type DatabaseRecordStatus = z.infer<typeof DatabaseRecordStatusSchema>;
+export type DatabaseRecordNameUpdate = z.infer<typeof DatabaseRecordNameUpdateSchema>;
 
 export type ImportValidationResult = {
   errors: string[];
