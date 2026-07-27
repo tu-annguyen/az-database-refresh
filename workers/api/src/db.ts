@@ -26,6 +26,13 @@ export type ReviewerAdminSummary = {
   reviewUrlPath: string | null;
 };
 
+export class InactiveDatabaseError extends Error {
+  constructor() {
+    super("This database is inactive and no longer accepts feedback.");
+    this.name = "InactiveDatabaseError";
+  }
+}
+
 export async function createReviewer(
   env: Env,
   payload: ReviewerCreate,
@@ -157,10 +164,12 @@ export async function listSubjects(env: Env): Promise<string[]> {
   return rows.results.map((row) => row.name);
 }
 
-export async function listAllRecords(env: Env): Promise<DatabaseRecord[]> {
+export async function listActiveRecords(env: Env): Promise<DatabaseRecord[]> {
   const batch = await getActiveBatch(env);
   if (!batch) return [];
-  const rows = await env.DB.prepare("SELECT * FROM database_records WHERE import_batch_id = ? ORDER BY database_name")
+  const rows = await env.DB.prepare(
+    "SELECT * FROM database_records WHERE import_batch_id = ? AND active = 1 ORDER BY database_name"
+  )
     .bind(batch.id)
     .all<RecordRow>();
   return rows.results.map(recordFromRow);
@@ -170,7 +179,10 @@ export async function listDatabaseOptions(env: Env): Promise<Array<{ databaseId:
   const batch = await getActiveBatch(env);
   if (!batch) return [];
   const rows = await env.DB.prepare(
-    "SELECT database_id, database_name FROM database_records WHERE import_batch_id = ? ORDER BY database_name"
+    `SELECT database_id, database_name
+     FROM database_records
+     WHERE import_batch_id = ? AND active = 1
+     ORDER BY database_name`
   )
     .bind(batch.id)
     .all<{ database_id: string; database_name: string }>();
@@ -204,7 +216,7 @@ export async function listRecordsForSelection(
   if (!conditions.length) return [];
   const rows = await env.DB.prepare(
     `SELECT r.* FROM database_records r
-     WHERE r.import_batch_id = ? AND (${conditions.join(" OR ")})
+     WHERE r.import_batch_id = ? AND r.active = 1 AND (${conditions.join(" OR ")})
      ORDER BY r.database_name`
   )
     .bind(...bindings)
@@ -217,9 +229,13 @@ export async function getCurrentReviewerSession(env: Env, reviewerId: string) {
   if (!batch) return null;
   const row = await env.DB.prepare(
     `SELECT s.id, s.selected_subjects_json, s.selected_database_ids_json, s.started_at, s.updated_at,
-            COUNT(r.id) AS review_count
+            COUNT(d.database_id) AS review_count
      FROM review_sessions s
      LEFT JOIN reviews r ON r.session_id = s.id
+     LEFT JOIN database_records d
+       ON d.import_batch_id = r.import_batch_id
+      AND d.database_id = r.database_id
+      AND d.active = 1
      WHERE s.reviewer_id = ? AND s.import_batch_id = ?
      GROUP BY s.id
      ORDER BY s.updated_at DESC
@@ -273,17 +289,22 @@ export async function upsertReview(env: Env, reviewerId: string, payload: Review
   const batch = await getActiveBatch(env);
   if (!batch) throw new Error("No active import batch");
   const now = new Date().toISOString();
-  const existing = await env.DB.prepare(
-    "SELECT id, created_at FROM reviews WHERE reviewer_id = ? AND import_batch_id = ? AND database_id = ?"
-  )
-    .bind(reviewerId, batch.id, payload.databaseId)
-    .first<{ id: string; created_at: string }>();
-  const id = existing?.id ?? crypto.randomUUID();
-  await env.DB.prepare(
-    `INSERT OR REPLACE INTO reviews (
+  const id = crypto.randomUUID();
+  const result = await env.DB.prepare(
+    `INSERT INTO reviews (
       id, reviewer_id, session_id, import_batch_id, database_id, selected_subjects_json, choice,
       revised_description_html, comments, updated_at, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM database_records d
+    WHERE d.import_batch_id = ? AND d.database_id = ? AND d.active = 1
+    ON CONFLICT(reviewer_id, import_batch_id, database_id) DO UPDATE SET
+      session_id = excluded.session_id,
+      selected_subjects_json = excluded.selected_subjects_json,
+      choice = excluded.choice,
+      revised_description_html = excluded.revised_description_html,
+      comments = excluded.comments,
+      updated_at = excluded.updated_at`
   )
     .bind(
       id,
@@ -296,22 +317,42 @@ export async function upsertReview(env: Env, reviewerId: string, payload: Review
       payload.revisedDescriptionHtml,
       payload.comments,
       now,
-      existing?.created_at ?? now
+      now,
+      batch.id,
+      payload.databaseId
     )
     .run();
+  if (result.meta.changes === 0) throw new InactiveDatabaseError();
   await env.DB.prepare("UPDATE review_sessions SET updated_at = ? WHERE id = ?").bind(now, payload.sessionId).run();
-  return id;
+  const savedId = await env.DB.prepare(
+    "SELECT id FROM reviews WHERE reviewer_id = ? AND import_batch_id = ? AND database_id = ?"
+  )
+    .bind(reviewerId, batch.id, payload.databaseId)
+    .first<{ id: string }>();
+  if (!savedId) throw new Error("Unable to load saved review");
+  return savedId.id;
 }
 
 export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert): Promise<void> {
   const batch = await getActiveBatch(env);
   if (!batch) throw new Error("No active import batch");
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT OR REPLACE INTO final_decisions (
+  const result = await env.DB.prepare(
+    `INSERT INTO final_decisions (
       import_batch_id, database_id, decision, selected_review_id, final_description_html,
       finalized, finalized_by, finalized_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM database_records d
+    WHERE d.import_batch_id = ? AND d.database_id = ? AND d.active = 1
+    ON CONFLICT(import_batch_id, database_id) DO UPDATE SET
+      decision = excluded.decision,
+      selected_review_id = excluded.selected_review_id,
+      final_description_html = excluded.final_description_html,
+      finalized = excluded.finalized,
+      finalized_by = excluded.finalized_by,
+      finalized_at = excluded.finalized_at,
+      updated_at = excluded.updated_at`
   )
     .bind(
       batch.id,
@@ -322,25 +363,38 @@ export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert):
       payload.finalized ? 1 : 0,
       payload.finalized ? "admin" : null,
       payload.finalized ? now : null,
-      now
+      now,
+      batch.id,
+      payload.databaseId
     )
     .run();
+  if (result.meta.changes === 0) throw new InactiveDatabaseError();
 }
 
 export async function getAggregates(env: Env) {
   const batch = await getActiveBatch(env);
   if (!batch) return [];
-  const records = await listAllRecords(env);
+  const records = await listActiveRecords(env);
   const reviewRows = await env.DB.prepare(
     `SELECT r.*, v.name AS reviewer_name, v.email AS reviewer_email
      FROM reviews r
      JOIN reviewers v ON v.id = r.reviewer_id
-     WHERE r.import_batch_id = ?
+     JOIN database_records d
+       ON d.import_batch_id = r.import_batch_id
+      AND d.database_id = r.database_id
+     WHERE r.import_batch_id = ? AND d.active = 1
      ORDER BY r.updated_at DESC`
   )
     .bind(batch.id)
     .all<ReviewRow>();
-  const decisionRows = await env.DB.prepare("SELECT * FROM final_decisions WHERE import_batch_id = ?")
+  const decisionRows = await env.DB.prepare(
+    `SELECT f.*
+     FROM final_decisions f
+     JOIN database_records d
+       ON d.import_batch_id = f.import_batch_id
+      AND d.database_id = f.database_id
+     WHERE f.import_batch_id = ? AND d.active = 1`
+  )
     .bind(batch.id)
     .all<DecisionRow>();
   const decisions = new Map(decisionRows.results.map((row) => [row.database_id, decisionFromRow(row)]));
@@ -374,7 +428,15 @@ export async function getAggregates(env: Env) {
 }
 
 async function listReviewsForSession(env: Env, sessionId: string) {
-  const rows = await env.DB.prepare("SELECT * FROM reviews WHERE session_id = ? ORDER BY updated_at DESC")
+  const rows = await env.DB.prepare(
+    `SELECT r.*
+     FROM reviews r
+     JOIN database_records d
+       ON d.import_batch_id = r.import_batch_id
+      AND d.database_id = r.database_id
+     WHERE r.session_id = ? AND d.active = 1
+     ORDER BY r.updated_at DESC`
+  )
     .bind(sessionId)
     .all<ReviewRow>();
   return rows.results.map(reviewFromRow);
@@ -389,6 +451,7 @@ type RecordRow = {
   rewritten_description_b_html: string;
   associated_subjects_json: string;
   springshare_metadata_json: string;
+  active: number;
 };
 
 type ReviewRow = {

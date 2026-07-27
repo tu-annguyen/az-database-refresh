@@ -1,5 +1,12 @@
 import type { FinalDecisionUpsert, ImportCommit, ReviewUpsert } from "@az-refresh/shared";
-import type { AdminAggregate, DatabaseOption, Reviewer, ReviewerSessionSummary, ReviewSummary } from "./types";
+import type {
+  AdminAggregate,
+  AdminDatabaseRecord,
+  DatabaseOption,
+  Reviewer,
+  ReviewerSessionSummary,
+  ReviewSummary
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 
@@ -57,9 +64,25 @@ export async function adminRegenerateReviewerLink(adminToken: string, reviewerId
 }
 
 export async function adminGetAggregates(adminToken: string) {
-  return apiFetch<{ aggregates: AdminAggregate[]; activeBatch: { source_workbook_base64: string } | null }>(
+  return apiFetch<{
+    aggregates: AdminAggregate[];
+    activeBatch: { source_workbook_base64: string } | null;
+    inactiveDatabaseIds: string[];
+  }>(
     "/admin/aggregates",
     {},
+    { adminToken }
+  );
+}
+
+export async function adminGetDatabaseRecords(adminToken: string) {
+  return apiFetch<{ records: AdminDatabaseRecord[] }>("/admin/records", {}, { adminToken });
+}
+
+export async function adminUpdateDatabaseStatus(adminToken: string, databaseId: string, active: boolean) {
+  return apiFetch<{ record: AdminDatabaseRecord }>(
+    `/admin/records/${encodeURIComponent(databaseId)}/status`,
+    { method: "PUT", body: { active } },
     { adminToken }
   );
 }
@@ -107,6 +130,16 @@ export async function reviewerSaveReview(reviewerToken: string, payload: ReviewU
   return apiFetch<{ reviewId: string }>("/reviewer/reviews", { method: "PUT", body: payload }, { reviewerToken });
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function apiFetch<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
@@ -121,6 +154,6 @@ async function apiFetch<T>(
     body: init.body ? JSON.stringify(init.body) : undefined
   });
   const data = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `Request failed: ${response.status}`);
+  if (!response.ok) throw new ApiError(data.error ?? `Request failed: ${response.status}`, response.status);
   return data;
 }

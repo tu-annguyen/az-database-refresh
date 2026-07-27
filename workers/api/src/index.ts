@@ -1,4 +1,5 @@
 import {
+  DatabaseRecordStatusSchema,
   FinalDecisionUpsertSchema,
   ImportCommitSchema,
   ReviewerCreateSchema,
@@ -18,7 +19,7 @@ import {
   getCurrentReviewerSession,
   getCurrentReviewerSessionDetail,
   getReviewer,
-  listAllRecords,
+  InactiveDatabaseError,
   listDatabaseOptions,
   listReviewers,
   listSubjects,
@@ -27,6 +28,7 @@ import {
   updateReviewer,
   upsertReview
 } from "./db";
+import { listAdminRecords, listInactiveDatabaseIds, updateDatabaseStatus } from "./databaseStatus";
 import { errorResponse, jsonResponse, optionsResponse, readJson } from "./http";
 import type { AuthedReviewer, Env } from "./types";
 
@@ -40,6 +42,9 @@ export default {
       if (url.pathname.startsWith("/reviewer/")) return await handleReviewer(request, env, url);
       return errorResponse("Not found", 404, env, request);
     } catch (error) {
+      if (error instanceof InactiveDatabaseError) {
+        return errorResponse(error.message, 409, env, request);
+      }
       const message = error instanceof Error ? error.message : "Unexpected error";
       return errorResponse(message, 500, env, request);
     }
@@ -108,11 +113,28 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
   }
 
   if (request.method === "GET" && url.pathname === "/admin/records") {
-    return jsonResponse({ records: await listAllRecords(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+    return jsonResponse({ records: await listAdminRecords(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+  }
+
+  const databaseStatusRoute = parseDatabaseStatusRoute(url.pathname);
+  if (databaseStatusRoute && request.method === "PUT") {
+    const payload = DatabaseRecordStatusSchema.parse(await readJson(request));
+    const record = await updateDatabaseStatus(env, databaseStatusRoute.id, payload.active);
+    if (!record) return errorResponse("Database not found in the active import batch", 404, env, request);
+    return jsonResponse({ record }, {}, env, request);
   }
 
   if (request.method === "GET" && url.pathname === "/admin/aggregates") {
-    return jsonResponse({ aggregates: await getAggregates(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+    return jsonResponse(
+      {
+        aggregates: await getAggregates(env),
+        activeBatch: await getActiveBatch(env),
+        inactiveDatabaseIds: await listInactiveDatabaseIds(env)
+      },
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "PUT" && url.pathname === "/admin/final-decisions") {
@@ -130,12 +152,20 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   const reviewer = authed as AuthedReviewer;
 
   if (request.method === "GET" && url.pathname === "/reviewer/me") {
+    const databases = await listDatabaseOptions(env);
+    const currentSession = await getCurrentReviewerSession(env, reviewer.id);
+    const activeDatabaseIds = new Set(databases.map((database) => database.databaseId));
     return jsonResponse(
       {
         reviewer,
         subjects: await listSubjects(env),
-        databases: await listDatabaseOptions(env),
-        currentSession: await getCurrentReviewerSession(env, reviewer.id)
+        databases,
+        currentSession: currentSession
+          ? {
+              ...currentSession,
+              selectedDatabaseIds: currentSession.selectedDatabaseIds.filter((id) => activeDatabaseIds.has(id))
+            }
+          : null
       },
       {},
       env,
@@ -146,11 +176,12 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   if (request.method === "GET" && url.pathname === "/reviewer/session/current") {
     const detail = await getCurrentReviewerSessionDetail(env, reviewer.id);
     if (!detail) return errorResponse("No review session found", 404, env, request);
+    const activeDatabaseIds = new Set((await listDatabaseOptions(env)).map((database) => database.databaseId));
     return jsonResponse(
       {
         sessionId: detail.session.id,
         selectedSubjects: detail.session.selectedSubjects,
-        selectedDatabaseIds: detail.session.selectedDatabaseIds,
+        selectedDatabaseIds: detail.session.selectedDatabaseIds.filter((id) => activeDatabaseIds.has(id)),
         records: detail.records,
         reviews: detail.reviews
       },
@@ -191,6 +222,12 @@ function parseReviewerRoute(pathname: string): { id: string; action?: string } |
     id: decodeURIComponent(id),
     action: action ? decodeURIComponent(action) : undefined
   };
+}
+
+function parseDatabaseStatusRoute(pathname: string): { id: string } | null {
+  const match = pathname.match(/^\/admin\/records\/([^/]+)\/status$/);
+  const id = match?.[1];
+  return id ? { id: decodeURIComponent(id) } : null;
 }
 
 function withCors(response: Response, env: Env, request: Request): Response {

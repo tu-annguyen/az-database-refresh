@@ -55,3 +55,7 @@ export type DatabaseOption = {
   databaseId: string;
   databaseName: string;
 };
+
+export type AdminDatabaseRecord = DatabaseOption & {
+  active: boolean;
+};

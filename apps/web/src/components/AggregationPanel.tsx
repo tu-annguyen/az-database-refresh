@@ -18,6 +18,7 @@ type Props = {
 
 export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
   const [aggregates, setAggregates] = useState<AdminAggregate[]>([]);
+  const [inactiveDatabaseIds, setInactiveDatabaseIds] = useState<string[]>([]);
   const [sourceWorkbookBase64, setSourceWorkbookBase64] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [decision, setDecision] = useState<FinalDecision>("use_rewritten_a");
@@ -33,6 +34,7 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
     setStatus("Loading results...");
     const result = await adminGetAggregates(adminToken);
     setAggregates(result.aggregates);
+    setInactiveDatabaseIds(result.inactiveDatabaseIds);
     setSourceWorkbookBase64(result.activeBatch?.source_workbook_base64 ?? "");
     setSelectedId((current) => current || result.aggregates[0]?.record.databaseId || "");
     setStatus("");
@@ -40,15 +42,20 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
 
   async function saveDecision() {
     if (!selected) return;
-    await adminSaveFinalDecision(adminToken, {
-      databaseId: selected.record.databaseId,
-      decision,
-      selectedReviewId: selectedReviewId || null,
-      finalDescriptionHtml: finalHtml,
-      finalized
-    });
-    setStatus("Final decision saved.");
-    await load();
+    try {
+      await adminSaveFinalDecision(adminToken, {
+        databaseId: selected.record.databaseId,
+        decision,
+        selectedReviewId: selectedReviewId || null,
+        finalDescriptionHtml: finalHtml,
+        finalized
+      });
+      await load();
+      setStatus("Final decision saved.");
+    } catch (error) {
+      await load();
+      setStatus(error instanceof Error ? error.message : "Unable to save the final decision.");
+    }
   }
 
   function applyDecision(nextDecision: FinalDecision, reviewId = "") {
@@ -75,13 +82,17 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
           </button>
           <button
             className="btn btn-outline-success btn-sm"
-            onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, true)}
+            onClick={() =>
+              void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, inactiveDatabaseIds, true)
+            }
           >
             Draft XLSX
           </button>
           <button
             className="btn btn-success btn-sm"
-            onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, false)}
+            onClick={() =>
+              void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, inactiveDatabaseIds, false)
+            }
           >
             Final XLSX
           </button>
@@ -94,7 +105,7 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
         />
       </div>
     ),
-    [adminToken, aggregates, load, selected?.record.databaseId, sourceWorkbookBase64]
+    [adminToken, aggregates, inactiveDatabaseIds, load, selected?.record.databaseId, sourceWorkbookBase64]
   );
 
   useEffect(() => {

@@ -69,6 +69,10 @@ export const FinalDecisionUpsertSchema = z.object({
   finalized: z.boolean().default(false)
 });
 
+export const DatabaseRecordStatusSchema = z.object({
+  active: z.boolean()
+});
+
 export type ReviewChoice = z.infer<typeof ReviewChoiceSchema>;
 export type FinalDecision = z.infer<typeof FinalDecisionSchema>;
 export type DatabaseRecord = z.infer<typeof DatabaseRecordSchema>;
@@ -77,6 +81,7 @@ export type ReviewerCreate = z.infer<typeof ReviewerCreateSchema>;
 export type ReviewerUpdate = z.infer<typeof ReviewerUpdateSchema>;
 export type ReviewUpsert = z.infer<typeof ReviewUpsertSchema>;
 export type FinalDecisionUpsert = z.infer<typeof FinalDecisionUpsertSchema>;
+export type DatabaseRecordStatus = z.infer<typeof DatabaseRecordStatusSchema>;
 
 export type ImportValidationResult = {
   errors: string[];

@@ -2,10 +2,11 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { AggregationPanel } from "./AggregationPanel";
 import { AdminImportPanel } from "./AdminImportPanel";
+import { DatabaseManager } from "./DatabaseManager";
 import { ReviewerManager } from "./ReviewerManager";
 import { TokenInput } from "./TokenInput";
 
-type Tab = "import" | "reviewers" | "results";
+type Tab = "import" | "databases" | "reviewers" | "results";
 
 export function AdminDashboard() {
   const [adminToken, setAdminToken] = useState("");
@@ -20,6 +21,7 @@ export function AdminDashboard() {
           <div className="list-group mt-3">
             {[
               ["import", "Import"],
+              ["databases", "Databases"],
               ["reviewers", "Reviewers"],
               ["results", "Results"]
             ].map(([id, label]) => (
@@ -37,6 +39,7 @@ export function AdminDashboard() {
       </aside>
       <section className="col-lg-9">
         {tab === "import" && <AdminImportPanel adminToken={adminToken} />}
+        {tab === "databases" && <DatabaseManager adminToken={adminToken} />}
         {tab === "reviewers" && <ReviewerManager adminToken={adminToken} />}
         {tab === "results" && <AggregationPanel adminToken={adminToken} onSidebarChange={setResultsSidebar} />}
       </section>

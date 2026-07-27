@@ -58,12 +58,38 @@ export function downloadAggregateCsv(aggregates: AdminAggregate[]): void {
   downloadText("aggregated-vote-summary.csv", toCsv(rows));
 }
 
-export async function downloadSpringshareWorkbook(base64: string, aggregates: AdminAggregate[], draft: boolean): Promise<void> {
+export async function downloadSpringshareWorkbook(
+  base64: string,
+  aggregates: AdminAggregate[],
+  inactiveDatabaseIds: string[],
+  draft: boolean
+): Promise<void> {
+  const workbook = await buildSpringshareWorkbook(base64, aggregates, inactiveDatabaseIds, draft);
+  const bytes = await workbook.xlsx.writeBuffer();
+  downloadBlob(
+    draft ? "springshare-description-export-draft.xlsx" : "springshare-description-export-final.xlsx",
+    new Blob([bytes], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    })
+  );
+}
+
+export async function buildSpringshareWorkbook(
+  base64: string,
+  aggregates: AdminAggregate[],
+  inactiveDatabaseIds: string[],
+  draft: boolean
+): Promise<ExcelJS.Workbook> {
   if (!base64) throw new Error("No source workbook is stored for the active import batch.");
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(base64ToArrayBuffer(base64));
   const worksheet = workbook.getWorksheet(IMPORT_SHEET);
   if (!worksheet) throw new Error(`Workbook is missing "${IMPORT_SHEET}" sheet.`);
+  const inactiveIds = new Set(inactiveDatabaseIds);
+  for (let row = worksheet.rowCount; row >= 3; row -= 1) {
+    const id = cellText(worksheet.getRow(row).getCell(1).value);
+    if (inactiveIds.has(id)) worksheet.spliceRows(row, 1);
+  }
   const finalById = new Map(
     aggregates
       .filter((item) => draft || item.finalDecision?.finalized)
@@ -76,13 +102,7 @@ export async function downloadSpringshareWorkbook(base64: string, aggregates: Ad
       worksheet.getRow(row).getCell(11).value = finalDescription;
     }
   }
-  const bytes = await workbook.xlsx.writeBuffer();
-  downloadBlob(
-    draft ? "springshare-description-export-draft.xlsx" : "springshare-description-export-final.xlsx",
-    new Blob([bytes], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    })
-  );
+  return workbook;
 }
 
 function parseCsv(filename: string, buffer: ArrayBuffer): ParsedImport {

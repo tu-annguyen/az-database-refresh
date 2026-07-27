@@ -1,6 +1,6 @@
 import { CHOICE_LABELS, type DatabaseRecord, type ReviewChoice } from "@az-refresh/shared";
 import { useEffect, useMemo, useState } from "react";
-import { reviewerMe, reviewerResumeSession, reviewerSaveReview, reviewerStartSession } from "../api";
+import { ApiError, reviewerMe, reviewerResumeSession, reviewerSaveReview, reviewerStartSession } from "../api";
 import { isReviewFormDirty } from "../lib/reviewSession";
 import type { DatabaseOption, ReviewerSessionSummary, ReviewSummary } from "../types";
 import { DatabaseCombobox } from "./DatabaseCombobox";
@@ -136,6 +136,32 @@ export function ReviewerApp({ initialToken }: Props) {
       );
       setStatus("Saved.");
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const refreshed = await reviewerResumeSession(token);
+          enterSession(
+            refreshed.sessionId,
+            refreshed.selectedSubjects,
+            refreshed.selectedDatabaseIds,
+            refreshed.records,
+            refreshed.reviews
+          );
+          setCurrentSession((existing) =>
+            existing
+              ? {
+                  ...existing,
+                  updatedAt: new Date().toISOString(),
+                  reviewCount: refreshed.reviews.length
+                }
+              : existing
+          );
+          setStatus("This database was deactivated and no longer requires feedback. Your queue has been refreshed.");
+          return;
+        } catch (refreshError) {
+          setStatus(refreshError instanceof Error ? refreshError.message : "Unable to refresh the review queue.");
+          return;
+        }
+      }
       setStatus(error instanceof Error ? error.message : "Unable to save review.");
     }
   }
