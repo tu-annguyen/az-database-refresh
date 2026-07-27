@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SPRINGSHARE_HEADERS } from "./constants";
 import { resolveFinalDescription } from "./finalDescription";
+import { hasOneSearchIcon, ONESEARCH_ICON_HTML, setOneSearchIcon } from "./oneSearchIcon";
 import { SessionStartSchema } from "./schemas";
 import { stripDangerousHtml } from "./sanitize";
 import { splitSubjects } from "./subjects";
@@ -33,6 +34,23 @@ describe("shared helpers", () => {
       springshareMetadata: {}
     };
     expect(resolveFinalDescription("use_rewritten_b", record, "", null)).toBe("B");
+  });
+
+  it("detects and toggles the Covered in OneSearch icon", () => {
+    const description = `${ONESEARCH_ICON_HTML}\n<p>Description</p>`;
+
+    expect(hasOneSearchIcon(description)).toBe(true);
+    expect(setOneSearchIcon(description, false)).toBe("<p>Description</p>");
+    expect(setOneSearchIcon("<p>Description</p>", true)).toBe(description);
+    expect(setOneSearchIcon(description, true)).toBe(description);
+  });
+
+  it("recognizes the OneSearch image by source when attributes differ", () => {
+    const description =
+      '<p>Description</p><img title="Covered" src=\'https://libapps.s3.amazonaws.com/accounts/7085/images/SmallOneSearchO.png\' alt="Covered">';
+
+    expect(hasOneSearchIcon(description)).toBe(true);
+    expect(setOneSearchIcon(description, false)).toBe("<p>Description</p>");
   });
 
   it("starts a reviewer session from subjects, individual databases, or both", () => {

@@ -1,4 +1,11 @@
-import { CHOICE_LABELS, FINAL_DECISION_LABELS, resolveFinalDescription, type FinalDecision } from "@az-refresh/shared";
+import {
+  CHOICE_LABELS,
+  FINAL_DECISION_LABELS,
+  hasOneSearchIcon,
+  resolveFinalDescription,
+  setOneSearchIcon,
+  type FinalDecision
+} from "@az-refresh/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { adminGetAggregates, adminSaveFinalDecision } from "../api";
@@ -24,6 +31,7 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
   const [decision, setDecision] = useState<FinalDecision>("use_rewritten_a");
   const [selectedReviewId, setSelectedReviewId] = useState("");
   const [finalHtml, setFinalHtml] = useState("");
+  const [coveredInOneSearch, setCoveredInOneSearch] = useState(false);
   const [finalized, setFinalized] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -63,7 +71,18 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
     const review = selected.reviews.find((item) => item.id === reviewId);
     setDecision(nextDecision);
     setSelectedReviewId(reviewId);
-    setFinalHtml(resolveFinalDescription(nextDecision, selected.record, finalHtml, review ?? null));
+    const resolvedHtml = resolveFinalDescription(nextDecision, selected.record, finalHtml, review ?? null);
+    setFinalHtml(setOneSearchIcon(resolvedHtml, coveredInOneSearch));
+  }
+
+  function toggleOneSearchIcon(included: boolean) {
+    setCoveredInOneSearch(included);
+    setFinalHtml((current) => setOneSearchIcon(current, included));
+  }
+
+  function updateFinalHtml(html: string) {
+    setFinalHtml(html);
+    setCoveredInOneSearch(hasOneSearchIcon(html));
   }
 
   const sidebar = useMemo(
@@ -122,7 +141,12 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
     const existing = selected.finalDecision;
     setDecision(existing?.decision ?? "use_rewritten_a");
     setSelectedReviewId(existing?.selectedReviewId ?? "");
-    setFinalHtml(existing?.finalDescriptionHtml || selected.record.rewrittenDescriptionAHtml);
+    const included = existing
+      ? hasOneSearchIcon(existing.finalDescriptionHtml)
+      : hasOneSearchIcon(selected.record.originalDescriptionHtml);
+    const description = existing?.finalDescriptionHtml || selected.record.rewrittenDescriptionAHtml;
+    setCoveredInOneSearch(included);
+    setFinalHtml(setOneSearchIcon(description, included));
     setFinalized(existing?.finalized ?? false);
   }, [selected?.record.databaseId]);
 
@@ -175,16 +199,35 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
                   </select>
                 </label>
               </div>
-              <div className="col-md-6 d-flex align-items-end">
+              <div className="col-md-6 d-flex flex-column justify-content-end align-items-start">
+                <label className="form-check mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={coveredInOneSearch}
+                    onChange={(event) => toggleOneSearchIcon(event.target.checked)}
+                  />
+                  <span className="form-check-label">Covered in OneSearch icon</span>
+                </label>
                 <label className="form-check mb-3">
-                  <input className="form-check-input" type="checkbox" checked={finalized} onChange={(event) => setFinalized(event.target.checked)} />
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={finalized}
+                    onChange={(event) => setFinalized(event.target.checked)}
+                  />
                   <span className="form-check-label">Finalized</span>
                 </label>
               </div>
             </div>
             <label className="form-label w-100">
               Final description
-              <textarea className="form-control" rows={6} value={finalHtml} onChange={(event) => setFinalHtml(event.target.value)} />
+              <textarea
+                className="form-control"
+                rows={6}
+                value={finalHtml}
+                onChange={(event) => updateFinalHtml(event.target.value)}
+              />
             </label>
             <button className="btn btn-primary" disabled={!adminToken} onClick={() => void saveDecision()}>
               Save final decision
