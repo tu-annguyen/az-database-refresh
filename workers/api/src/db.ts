@@ -1,5 +1,10 @@
 import type { DatabaseRecord, FinalDecisionUpsert, ImportCommit, ReviewerCreate, ReviewerUpdate, ReviewUpsert } from "@az-refresh/shared";
 import { CANONICAL_SUBJECTS, deriveSubjects } from "@az-refresh/shared";
+import {
+  getLatestReviewerSessionProgress,
+  listLatestReviewerSessionProgress
+} from "./reviewerProgress";
+import type { ReviewerSessionProgress } from "./reviewerProgress";
 import type { Env } from "./types";
 
 export async function getActiveBatch(env: Env) {
@@ -24,6 +29,7 @@ export type ReviewerAdminSummary = {
   active: boolean;
   createdAt: string;
   reviewUrlPath: string | null;
+  latestSession: ReviewerSessionProgress | null;
 };
 
 export class InactiveDatabaseError extends Error {
@@ -51,24 +57,30 @@ export async function createReviewer(
     email: payload.email,
     active: true,
     createdAt: now,
-    reviewUrlPath: reviewUrlPath(credentials.token)
+    reviewUrlPath: reviewUrlPath(credentials.token),
+    latestSession: null
   };
 }
 
 export async function listReviewers(env: Env): Promise<ReviewerAdminSummary[]> {
-  const reviewers = await env.DB.prepare(
-    "SELECT id, name, email, token, active, created_at FROM reviewers ORDER BY created_at DESC"
-  ).all<ReviewerRow>();
-  return reviewers.results.map(reviewerFromRow);
+  const [reviewers, sessions] = await Promise.all([
+    env.DB.prepare(
+      "SELECT id, name, email, token, active, created_at FROM reviewers ORDER BY created_at DESC"
+    ).all<ReviewerRow>(),
+    listLatestReviewerSessionProgress(env)
+  ]);
+  const sessionsByReviewer = new Map(sessions.map((session) => [session.reviewerId, session]));
+  return reviewers.results.map((reviewer) => reviewerFromRow(reviewer, sessionsByReviewer.get(reviewer.id) ?? null));
 }
 
 export async function getReviewer(env: Env, reviewerId: string): Promise<ReviewerAdminSummary | null> {
-  const reviewer = await env.DB.prepare(
-    "SELECT id, name, email, token, active, created_at FROM reviewers WHERE id = ?"
-  )
-    .bind(reviewerId)
-    .first<ReviewerRow>();
-  return reviewer ? reviewerFromRow(reviewer) : null;
+  const [reviewer, session] = await Promise.all([
+    env.DB.prepare("SELECT id, name, email, token, active, created_at FROM reviewers WHERE id = ?")
+      .bind(reviewerId)
+      .first<ReviewerRow>(),
+    getLatestReviewerSessionProgress(env, reviewerId)
+  ]);
+  return reviewer ? reviewerFromRow(reviewer, session) : null;
 }
 
 export async function updateReviewer(
@@ -497,7 +509,10 @@ type ReviewerRow = {
   created_at: string;
 };
 
-function reviewerFromRow(row: ReviewerRow): ReviewerAdminSummary {
+function reviewerFromRow(
+  row: ReviewerRow,
+  latestSession: ReviewerSessionProgress | null
+): ReviewerAdminSummary {
   const active = row.active === 1;
   return {
     id: row.id,
@@ -505,7 +520,8 @@ function reviewerFromRow(row: ReviewerRow): ReviewerAdminSummary {
     email: row.email,
     active,
     createdAt: row.created_at,
-    reviewUrlPath: active ? reviewUrlPath(row.token) : null
+    reviewUrlPath: active ? reviewUrlPath(row.token) : null,
+    latestSession
   };
 }
 

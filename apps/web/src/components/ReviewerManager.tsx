@@ -171,6 +171,7 @@ export function ReviewerManager({ adminToken }: Props) {
               <th>Name</th>
               <th>Email</th>
               <th>Reviewer link</th>
+              <th>Latest session</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -191,7 +192,7 @@ export function ReviewerManager({ adminToken }: Props) {
             ))}
             {reviewers.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-secondary">
+                <td colSpan={6} className="text-secondary">
                   No reviewers found.
                 </td>
               </tr>
@@ -259,6 +260,9 @@ function ReviewerRow({
         )}
       </td>
       <td>
+        <SessionProgress reviewer={reviewer} />
+      </td>
+      <td>
         <span className={`badge ${active ? "text-bg-success" : "text-bg-secondary"}`}>{active ? "Active" : "Inactive"}</span>
       </td>
       <td>
@@ -286,10 +290,61 @@ function ReviewerRow({
   );
 }
 
+function SessionProgress({ reviewer }: { reviewer: Reviewer }) {
+  const session = reviewer.latestSession;
+  if (!session) return <span className="text-secondary">Not started</span>;
+
+  const percentage = session.totalCount > 0 ? Math.min(100, (session.reviewCount / session.totalCount) * 100) : 0;
+  const progressLabel = `${session.reviewCount} of ${session.totalCount} saved`;
+
+  return (
+    <div style={{ minWidth: "9rem" }}>
+      <div className="small">{progressLabel}</div>
+      <div
+        className="progress mt-1"
+        role="progressbar"
+        aria-label={`${reviewer.name}'s most recent review session: ${progressLabel}`}
+        aria-valuenow={session.reviewCount}
+        aria-valuemin={0}
+        aria-valuemax={session.totalCount}
+        style={{ height: "6px" }}
+      >
+        <div className="progress-bar" style={{ width: `${percentage}%` }} />
+      </div>
+      <div className="small text-secondary mt-1" title={formatDate(session.updatedAt)}>
+        Updated {formatRelativeDate(session.updatedAt)}
+      </div>
+    </div>
+  );
+}
+
 function reviewerDraft(reviewer: Reviewer): ReviewerDraft {
   return { name: reviewer.name, email: reviewer.email };
 }
 
 function absoluteReviewUrl(path: string | null | undefined): string {
   return path ? `${window.location.origin}${path}` : "";
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function formatRelativeDate(value: string): string {
+  const elapsedSeconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+  const intervals: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 60 * 60 * 24 * 365],
+    ["month", 60 * 60 * 24 * 30],
+    ["day", 60 * 60 * 24],
+    ["hour", 60 * 60],
+    ["minute", 60]
+  ];
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const interval = intervals.find(([, seconds]) => Math.abs(elapsedSeconds) >= seconds);
+  return interval
+    ? formatter.format(Math.round(elapsedSeconds / interval[1]), interval[0])
+    : formatter.format(elapsedSeconds, "second");
 }

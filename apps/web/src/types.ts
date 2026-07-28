@@ -40,6 +40,15 @@ export type Reviewer = {
   active?: boolean;
   createdAt?: string;
   reviewUrlPath?: string | null;
+  latestSession?: ReviewerSessionProgress | null;
+};
+
+export type ReviewerSessionProgress = {
+  id: string;
+  startedAt: string;
+  updatedAt: string;
+  reviewCount: number;
+  totalCount: number;
 };
 
 export type ReviewerSessionSummary = {
