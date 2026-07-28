@@ -37,9 +37,10 @@ export function DatabaseCombobox({ databases, selectedIds, onChange }: Props) {
 
   return (
     <div className="database-combobox">
-      <label className="form-label" htmlFor={inputId}>
+      <label className="h5" htmlFor={inputId}>
         Add individual databases
       </label>
+      <p>Have specific databases you want to include? Search below to add them to those matched by your selected subjects.</p>
       <div className="position-relative">
         <input
           id={inputId}
@@ -101,7 +102,6 @@ export function DatabaseCombobox({ databases, selectedIds, onChange }: Props) {
           ))}
         </div>
       )}
-      <div className="form-text">These databases are added to those matched by your selected subjects.</div>
     </div>
   );
 }

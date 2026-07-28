@@ -358,6 +358,7 @@ function SubjectSelector({
   return (
     <div className="bg-white border rounded-2 p-4">
       <h2 className="h5">Select subjects</h2>
+      <p>Select your subjects of expertise. These subjects will be used to match databases for your review.</p>
       <div className="subject-grid my-3">
         {subjects.map((subject) => (
           <label className="form-check mb-2" key={subject}>
