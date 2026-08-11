@@ -4,7 +4,7 @@ Lightweight review app for library database descriptions.
 
 ## Architecture
 
-- `apps/web`: React + Vite + Bootstrap frontend for reviewers, admins, import, aggregation, final decisions, and browser-side XLSX/CSV export.
+- `apps/web`: React + Vite + Bootstrap frontend for reviewers, scoped result admins, import, aggregation, final decisions, and browser-side XLSX/CSV export.
 - `workers/api`: Cloudflare Worker API backed by Cloudflare D1.
 - `packages/shared`: shared schemas, constants, CSV/XLSX helpers, and sanitization helpers.
 
@@ -24,7 +24,7 @@ The web app defaults to `http://localhost:8787` for the API.
 
 - Frontend: Vercel Hobby. Set `VITE_API_BASE_URL` to the deployed Worker URL.
 - API: Cloudflare Worker with D1. Set `ADMIN_TOKEN` and `ALLOWED_ORIGINS`.
-- Database: run the D1 migration in `workers/api/migrations`.
+- Database: run all D1 migrations in `workers/api/migrations`, including the result-admin assignment migration.
 
 ## Verification
 

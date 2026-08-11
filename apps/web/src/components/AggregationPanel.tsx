@@ -8,7 +8,12 @@ import {
 } from "@az-refresh/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { adminGetAggregates, adminSaveFinalDecision } from "../api";
+import {
+  adminGetAggregates,
+  adminSaveFinalDecision,
+  resultAdminGetAggregates,
+  resultAdminSaveFinalDecision
+} from "../api";
 import {
   downloadAggregateCsv,
   downloadRawReviewsCsv,
@@ -19,11 +24,13 @@ import { DatabaseFilterCombobox } from "./DatabaseFilterCombobox";
 import { SafeHtml } from "./SafeHtml";
 
 type Props = {
-  adminToken: string;
+  adminToken?: string;
+  resultAdminToken?: string;
+  showResultsControls?: boolean;
   onSidebarChange?: (sidebar: ReactNode | null) => void;
 };
 
-export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
+export function AggregationPanel({ adminToken = "", resultAdminToken = "", showResultsControls = true, onSidebarChange }: Props) {
   const [aggregates, setAggregates] = useState<AdminAggregate[]>([]);
   const [inactiveDatabaseIds, setInactiveDatabaseIds] = useState<string[]>([]);
   const [sourceWorkbookBase64, setSourceWorkbookBase64] = useState("");
@@ -34,30 +41,47 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
   const [coveredInOneSearch, setCoveredInOneSearch] = useState(false);
   const [finalized, setFinalized] = useState(false);
   const [status, setStatus] = useState("");
+  const token = adminToken || resultAdminToken;
 
-  const selected = aggregates.find((item) => item.record.databaseId === selectedId) ?? aggregates[0];
+  const selected = aggregates.find((item) => item.record.databaseId === selectedId);
 
   const load = useCallback(async () => {
-    if (!adminToken) return;
-    setStatus("Loading results...");
-    const result = await adminGetAggregates(adminToken);
-    setAggregates(result.aggregates);
-    setInactiveDatabaseIds(result.inactiveDatabaseIds);
-    setSourceWorkbookBase64(result.activeBatch?.source_workbook_base64 ?? "");
-    setSelectedId((current) => current || result.aggregates[0]?.record.databaseId || "");
-    setStatus("");
-  }, [adminToken]);
+    if (!token) return;
+    try {
+      setStatus("Loading results...");
+      const result = resultAdminToken
+        ? await resultAdminGetAggregates(resultAdminToken)
+        : await adminGetAggregates(adminToken);
+      setAggregates(result.aggregates);
+      if (resultAdminToken) {
+        setInactiveDatabaseIds([]);
+        setSourceWorkbookBase64("");
+      } else {
+        const masterResult = result as Awaited<ReturnType<typeof adminGetAggregates>>;
+        setInactiveDatabaseIds(masterResult.inactiveDatabaseIds);
+        setSourceWorkbookBase64(masterResult.activeBatch?.source_workbook_base64 ?? "");
+      }
+      setSelectedId((current) => result.aggregates.some((item) => item.record.databaseId === current)
+        ? current : result.aggregates[0]?.record.databaseId ?? "");
+      setStatus("");
+    } catch (error) {
+      setAggregates([]);
+      setStatus(error instanceof Error ? error.message : "Unable to load results.");
+    }
+  }, [adminToken, resultAdminToken, token]);
 
   async function saveDecision() {
     if (!selected) return;
     try {
-      await adminSaveFinalDecision(adminToken, {
+      const payload = {
         databaseId: selected.record.databaseId,
         decision,
         selectedReviewId: selectedReviewId || null,
         finalDescriptionHtml: finalHtml,
         finalized
-      });
+      };
+      if (resultAdminToken) await resultAdminSaveFinalDecision(resultAdminToken, payload);
+      else await adminSaveFinalDecision(adminToken, payload);
       await load();
       setStatus("Final decision saved.");
     } catch (error) {
@@ -88,8 +112,9 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
   const sidebar = useMemo(
     () => (
       <div className="border-top pt-3">
-        <div className="small fw-semibold text-secondary mb-2">Results controls</div>
-        <div className="d-grid gap-2 mb-3">
+        {showResultsControls && <>
+          <div className="small fw-semibold text-secondary mb-2">Results controls</div>
+          <div className="d-grid gap-2 mb-3">
           <button className="btn btn-outline-primary btn-sm" disabled={!adminToken} onClick={() => void load()}>
             Refresh results
           </button>
@@ -115,7 +140,8 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
           >
             Final XLSX
           </button>
-        </div>
+          </div>
+        </>}
         <div className="small fw-semibold text-secondary mb-2">Databases</div>
         <DatabaseFilterCombobox
           aggregates={aggregates}
@@ -124,7 +150,7 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
         />
       </div>
     ),
-    [adminToken, aggregates, inactiveDatabaseIds, load, selected?.record.databaseId, sourceWorkbookBase64]
+    [aggregates, inactiveDatabaseIds, load, selected?.record.databaseId, showResultsControls, sourceWorkbookBase64, token]
   );
 
   useEffect(() => {
@@ -229,12 +255,16 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
                 onChange={(event) => updateFinalHtml(event.target.value)}
               />
             </label>
-            <button className="btn btn-primary" disabled={!adminToken} onClick={() => void saveDecision()}>
-              Save final decision
+            <button className="btn btn-primary" disabled={!token} onClick={() => void saveDecision()}>
+              Save
             </button>
             {status && <div className="alert alert-info py-2 mt-3">{status}</div>}
           </div>
         )}
+        {!selected && status && <div className="alert alert-info py-2">{status}</div>}
+        {!selected && !status && token && <div className="bg-white border rounded-2 p-4 text-secondary">
+          {aggregates.length > 0 ? "No databases match the current filters." : "No assigned databases."}
+        </div>}
       </section>
     </>
   );

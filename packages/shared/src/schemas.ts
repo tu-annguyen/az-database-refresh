@@ -43,6 +43,15 @@ export const ReviewerCreateSchema = ReviewerIdentitySchema;
 
 export const ReviewerUpdateSchema = ReviewerIdentitySchema;
 
+export const ResultAdminCreateSchema = ReviewerIdentitySchema;
+
+export const ResultAdminUpdateSchema = ReviewerIdentitySchema;
+
+export const DatabaseAssignmentsUpdateSchema = z.object({
+  databaseIds: z.array(z.string().min(1)).min(1),
+  adminId: z.string().min(1).nullable()
+});
+
 export const SessionStartSchema = z
   .object({
     selectedSubjects: z.array(z.string().min(1)),
@@ -83,6 +92,9 @@ export type DatabaseRecord = z.infer<typeof DatabaseRecordSchema>;
 export type ImportCommit = z.infer<typeof ImportCommitSchema>;
 export type ReviewerCreate = z.infer<typeof ReviewerCreateSchema>;
 export type ReviewerUpdate = z.infer<typeof ReviewerUpdateSchema>;
+export type ResultAdminCreate = z.infer<typeof ResultAdminCreateSchema>;
+export type ResultAdminUpdate = z.infer<typeof ResultAdminUpdateSchema>;
+export type DatabaseAssignmentsUpdate = z.infer<typeof DatabaseAssignmentsUpdateSchema>;
 export type ReviewUpsert = z.infer<typeof ReviewUpsertSchema>;
 export type FinalDecisionUpsert = z.infer<typeof FinalDecisionUpsertSchema>;
 export type DatabaseRecordStatus = z.infer<typeof DatabaseRecordStatusSchema>;

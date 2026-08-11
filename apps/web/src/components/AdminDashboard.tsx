@@ -4,9 +4,10 @@ import { AggregationPanel } from "./AggregationPanel";
 import { AdminImportPanel } from "./AdminImportPanel";
 import { DatabaseManager } from "./DatabaseManager";
 import { ReviewerManager } from "./ReviewerManager";
+import { ResultAdminManager } from "./ResultAdminManager";
 import { TokenInput } from "./TokenInput";
 
-type Tab = "import" | "databases" | "reviewers" | "results";
+type Tab = "import" | "databases" | "reviewers" | "admins" | "results";
 
 export function AdminDashboard() {
   const [adminToken, setAdminToken] = useState("");
@@ -23,6 +24,7 @@ export function AdminDashboard() {
               ["import", "Import"],
               ["databases", "Databases"],
               ["reviewers", "Reviewers"],
+              ["admins", "Admins"],
               ["results", "Results"]
             ].map(([id, label]) => (
               <button
@@ -41,6 +43,7 @@ export function AdminDashboard() {
         {tab === "import" && <AdminImportPanel adminToken={adminToken} />}
         {tab === "databases" && <DatabaseManager adminToken={adminToken} />}
         {tab === "reviewers" && <ReviewerManager adminToken={adminToken} />}
+        {tab === "admins" && <ResultAdminManager adminToken={adminToken} />}
         {tab === "results" && <AggregationPanel adminToken={adminToken} onSidebarChange={setResultsSidebar} />}
       </section>
     </div>

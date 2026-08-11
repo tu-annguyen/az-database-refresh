@@ -345,7 +345,7 @@ export async function upsertReview(env: Env, reviewerId: string, payload: Review
   return savedId.id;
 }
 
-export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert): Promise<void> {
+export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert, finalizedBy = "admin"): Promise<void> {
   const batch = await getActiveBatch(env);
   if (!batch) throw new Error("No active import batch");
   const now = new Date().toISOString();
@@ -373,7 +373,7 @@ export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert):
       payload.selectedReviewId ?? null,
       payload.finalDescriptionHtml,
       payload.finalized ? 1 : 0,
-      payload.finalized ? "admin" : null,
+      payload.finalized ? finalizedBy : null,
       payload.finalized ? now : null,
       now,
       batch.id,

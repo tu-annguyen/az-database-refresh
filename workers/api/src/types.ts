@@ -9,3 +9,9 @@ export type AuthedReviewer = {
   name: string;
   email: string;
 };
+
+export type AuthedResultAdmin = {
+  id: string;
+  name: string;
+  email: string;
+};
