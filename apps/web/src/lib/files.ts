@@ -58,24 +58,13 @@ export function downloadAggregateCsv(aggregates: AdminAggregate[]): void {
   downloadText("aggregated-vote-summary.csv", toCsv(rows));
 }
 
-export async function downloadSpringshareWorkbook(base64: string, aggregates: AdminAggregate[], draft: boolean): Promise<void> {
-  if (!base64) throw new Error("No source workbook is stored for the active import batch.");
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(base64ToArrayBuffer(base64));
-  const worksheet = workbook.getWorksheet(IMPORT_SHEET);
-  if (!worksheet) throw new Error(`Workbook is missing "${IMPORT_SHEET}" sheet.`);
-  const finalById = new Map(
-    aggregates
-      .filter((item) => draft || item.finalDecision?.finalized)
-      .map((item) => [item.record.databaseId, item.finalDecision?.finalDescriptionHtml ?? ""])
-  );
-  for (let row = 3; row <= worksheet.rowCount; row += 1) {
-    const id = cellText(worksheet.getRow(row).getCell(1).value);
-    const finalDescription = finalById.get(id);
-    if (finalDescription !== undefined && finalDescription !== "") {
-      worksheet.getRow(row).getCell(11).value = finalDescription;
-    }
-  }
+export async function downloadSpringshareWorkbook(
+  base64: string,
+  aggregates: AdminAggregate[],
+  inactiveDatabaseIds: string[],
+  draft: boolean
+): Promise<void> {
+  const workbook = await buildSpringshareWorkbook(base64, aggregates, inactiveDatabaseIds, draft);
   const bytes = await workbook.xlsx.writeBuffer();
   downloadBlob(
     draft ? "springshare-description-export-draft.xlsx" : "springshare-description-export-final.xlsx",
@@ -83,6 +72,42 @@ export async function downloadSpringshareWorkbook(base64: string, aggregates: Ad
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     })
   );
+}
+
+export async function buildSpringshareWorkbook(
+  base64: string,
+  aggregates: AdminAggregate[],
+  inactiveDatabaseIds: string[],
+  draft: boolean
+): Promise<ExcelJS.Workbook> {
+  if (!base64) throw new Error("No source workbook is stored for the active import batch.");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(base64ToArrayBuffer(base64));
+  const worksheet = workbook.getWorksheet(IMPORT_SHEET);
+  if (!worksheet) throw new Error(`Workbook is missing "${IMPORT_SHEET}" sheet.`);
+  const inactiveIds = new Set(inactiveDatabaseIds);
+  for (let row = worksheet.rowCount; row >= 3; row -= 1) {
+    const id = cellText(worksheet.getRow(row).getCell(1).value);
+    if (inactiveIds.has(id)) worksheet.spliceRows(row, 1);
+  }
+  const finalById = new Map(
+    aggregates
+      .filter((item) => draft || item.finalDecision?.finalized)
+      .map((item) => [item.record.databaseId, item.finalDecision?.finalDescriptionHtml ?? ""])
+  );
+  const databaseNameById = new Map(
+    aggregates.map((item) => [item.record.databaseId, item.record.databaseName])
+  );
+  for (let row = 3; row <= worksheet.rowCount; row += 1) {
+    const id = cellText(worksheet.getRow(row).getCell(1).value);
+    const databaseName = databaseNameById.get(id);
+    if (databaseName !== undefined) worksheet.getRow(row).getCell(2).value = databaseName;
+    const finalDescription = finalById.get(id);
+    if (finalDescription !== undefined && finalDescription !== "") {
+      worksheet.getRow(row).getCell(11).value = finalDescription;
+    }
+  }
+  return workbook;
 }
 
 function parseCsv(filename: string, buffer: ArrayBuffer): ParsedImport {
@@ -144,9 +169,9 @@ function getReviewRows(workbook: ExcelJS.Workbook): Map<string, { a: string; b: 
   const worksheet = workbook.getWorksheet(REVIEW_SHEET);
   if (!worksheet) return new Map();
   const headers = rowValues(worksheet.getRow(1));
-  const idColumn = headers.indexOf("database_id") + 1;
-  const aColumn = headers.indexOf("rewritten_description_a_html") + 1;
-  const bColumn = headers.indexOf("rewritten_description_b_html") + 1;
+  const idColumn = findHeaderColumn(headers, ["database_id", "Database_ID", "ID"]);
+  const aColumn = findHeaderColumn(headers, ["rewritten_description_a_html", "Rewritten_Description_A_HTML"]);
+  const bColumn = findHeaderColumn(headers, ["rewritten_description_b_html", "Rewritten_Description_B_HTML"]);
   const rows = new Map<string, { a: string; b: string }>();
   if (!idColumn || !aColumn || !bColumn) return rows;
   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
@@ -159,6 +184,15 @@ function getReviewRows(workbook: ExcelJS.Workbook): Map<string, { a: string; b: 
     });
   }
   return rows;
+}
+
+function findHeaderColumn(headers: string[], names: string[]): number {
+  const normalizedHeaders = headers.map(normalizeHeader);
+  for (const name of names) {
+    const index = normalizedHeaders.indexOf(normalizeHeader(name));
+    if (index >= 0) return index + 1;
+  }
+  return 0;
 }
 
 function buildParsedImport(

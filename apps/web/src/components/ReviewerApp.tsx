@@ -1,7 +1,10 @@
 import { CHOICE_LABELS, type DatabaseRecord, type ReviewChoice } from "@az-refresh/shared";
 import { useEffect, useMemo, useState } from "react";
-import { reviewerMe, reviewerResumeSession, reviewerSaveReview, reviewerStartSession } from "../api";
-import type { ReviewerSessionSummary, ReviewSummary } from "../types";
+import { ApiError, reviewerMe, reviewerResumeSession, reviewerSaveReview, reviewerStartSession } from "../api";
+import { isReviewFormDirty } from "../lib/reviewSession";
+import type { DatabaseOption, ReviewerSessionSummary, ReviewSummary } from "../types";
+import { DatabaseCombobox } from "./DatabaseCombobox";
+import { ReviewSessionNavigator } from "./ReviewSessionNavigator";
 import { SafeHtml } from "./SafeHtml";
 import { TokenInput } from "./TokenInput";
 
@@ -13,8 +16,10 @@ export function ReviewerApp({ initialToken }: Props) {
   const [token, setToken] = useState(initialToken);
   const [name, setName] = useState("");
   const [subjects, setSubjects] = useState<string[]>([]);
+  const [databases, setDatabases] = useState<DatabaseOption[]>([]);
   const [currentSession, setCurrentSession] = useState<ReviewerSessionSummary | null>(null);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const [selectedDatabaseIds, setSelectedDatabaseIds] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [records, setRecords] = useState<DatabaseRecord[]>([]);
   const [savedReviews, setSavedReviews] = useState<Record<string, ReviewSummary>>({});
@@ -25,6 +30,7 @@ export function ReviewerApp({ initialToken }: Props) {
   const [status, setStatus] = useState("");
 
   const current = records[index];
+  const currentSavedReview = current ? savedReviews[current.databaseId] : undefined;
   const progress = useMemo(() => (records.length ? `${index + 1} of ${records.length}` : "0 of 0"), [index, records.length]);
 
   async function loadIdentity() {
@@ -33,8 +39,10 @@ export function ReviewerApp({ initialToken }: Props) {
       const result = await reviewerMe(token);
       setName(result.reviewer.name);
       setSubjects(result.subjects);
+      setDatabases(result.databases);
       setCurrentSession(result.currentSession);
       setSelectedSubjects(result.currentSession?.selectedSubjects ?? []);
+      setSelectedDatabaseIds(result.currentSession?.selectedDatabaseIds ?? []);
       setStatus("");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to load reviewer.");
@@ -45,7 +53,13 @@ export function ReviewerApp({ initialToken }: Props) {
     try {
       setStatus("Loading saved session...");
       const result = await reviewerResumeSession(token);
-      enterSession(result.sessionId, result.selectedSubjects, result.records, result.reviews);
+      enterSession(
+        result.sessionId,
+        result.selectedSubjects,
+        result.selectedDatabaseIds,
+        result.records,
+        result.reviews
+      );
       setStatus(`Resumed ${result.records.length} databases.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to resume session.");
@@ -55,12 +69,13 @@ export function ReviewerApp({ initialToken }: Props) {
   async function startSession() {
     try {
       setStatus("Building review queue...");
-      const result = await reviewerStartSession(token, selectedSubjects);
+      const result = await reviewerStartSession(token, selectedSubjects, selectedDatabaseIds);
       const now = new Date().toISOString();
-      enterSession(result.sessionId, selectedSubjects, result.records, result.reviews);
+      enterSession(result.sessionId, selectedSubjects, selectedDatabaseIds, result.records, result.reviews);
       setCurrentSession({
         id: result.sessionId,
         selectedSubjects,
+        selectedDatabaseIds,
         startedAt: now,
         updatedAt: now,
         reviewCount: 0
@@ -71,7 +86,7 @@ export function ReviewerApp({ initialToken }: Props) {
     }
   }
 
-  async function saveAndMove(nextIndex: number) {
+  async function saveReview() {
     if (!current || !sessionId) return;
     if (!choice) {
       setStatus("Select which description should be used before saving.");
@@ -81,50 +96,91 @@ export function ReviewerApp({ initialToken }: Props) {
       setStatus("A revised description is required when choosing Edited / revised version.");
       return;
     }
-    setStatus("Saving review...");
-    const saved = await reviewerSaveReview(token, {
-      sessionId,
-      databaseId: current.databaseId,
-      selectedSubjects,
-      choice,
-      revisedDescriptionHtml: revision,
-      comments
-    });
-    const now = new Date().toISOString();
-    const wasAlreadySaved = Boolean(savedReviews[current.databaseId]);
-    setSavedReviews((existing) => ({
-      ...existing,
-      [current.databaseId]: {
-        id: saved.reviewId,
-        reviewerId: existing[current.databaseId]?.reviewerId ?? "",
-        reviewerName: existing[current.databaseId]?.reviewerName ?? "",
-        reviewerEmail: existing[current.databaseId]?.reviewerEmail ?? "",
+    try {
+      setStatus("Saving review...");
+      const saved = await reviewerSaveReview(token, {
         sessionId,
         databaseId: current.databaseId,
         selectedSubjects,
         choice,
         revisedDescriptionHtml: revision,
-        comments,
-        updatedAt: now,
-        createdAt: existing[current.databaseId]?.createdAt ?? now
+        comments
+      });
+      const now = new Date().toISOString();
+      const wasAlreadySaved = Boolean(savedReviews[current.databaseId]);
+      setSavedReviews((existing) => ({
+        ...existing,
+        [current.databaseId]: {
+          id: saved.reviewId,
+          reviewerId: existing[current.databaseId]?.reviewerId ?? "",
+          reviewerName: existing[current.databaseId]?.reviewerName ?? "",
+          reviewerEmail: existing[current.databaseId]?.reviewerEmail ?? "",
+          sessionId,
+          databaseId: current.databaseId,
+          selectedSubjects,
+          choice,
+          revisedDescriptionHtml: revision,
+          comments,
+          updatedAt: now,
+          createdAt: existing[current.databaseId]?.createdAt ?? now
+        }
+      }));
+      setCurrentSession((existing) =>
+        existing
+          ? {
+              ...existing,
+              updatedAt: now,
+              reviewCount: existing.reviewCount + (wasAlreadySaved ? 0 : 1)
+            }
+          : existing
+      );
+      setStatus("Saved.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const refreshed = await reviewerResumeSession(token);
+          enterSession(
+            refreshed.sessionId,
+            refreshed.selectedSubjects,
+            refreshed.selectedDatabaseIds,
+            refreshed.records,
+            refreshed.reviews
+          );
+          setCurrentSession((existing) =>
+            existing
+              ? {
+                  ...existing,
+                  updatedAt: new Date().toISOString(),
+                  reviewCount: refreshed.reviews.length
+                }
+              : existing
+          );
+          setStatus("This database was deactivated and no longer requires feedback. Your queue has been refreshed.");
+          return;
+        } catch (refreshError) {
+          setStatus(refreshError instanceof Error ? refreshError.message : "Unable to refresh the review queue.");
+          return;
+        }
       }
-    }));
-    setCurrentSession((existing) =>
-      existing
-        ? {
-            ...existing,
-            updatedAt: now,
-            reviewCount: existing.reviewCount + (wasAlreadySaved ? 0 : 1)
-          }
-        : existing
-    );
-    setIndex(Math.max(0, Math.min(nextIndex, records.length - 1)));
-    setStatus("Saved.");
+      setStatus(error instanceof Error ? error.message : "Unable to save review.");
+    }
+  }
+
+  function navigateTo(nextIndex: number) {
+    const next = records[nextIndex];
+    if (!current || !next || nextIndex === index) return;
+    const dirty = isReviewFormDirty({ choice, revision, comments }, currentSavedReview);
+    if (dirty && !window.confirm("Discard your unsaved changes and navigate to another database?")) return;
+
+    loadForm(savedReviews[next.databaseId]);
+    setIndex(nextIndex);
+    setStatus(dirty ? "Unsaved changes discarded." : "");
   }
 
   function enterSession(
     nextSessionId: string,
     nextSelectedSubjects: string[],
+    nextSelectedDatabaseIds: string[],
     nextRecords: DatabaseRecord[],
     reviews: ReviewSummary[]
   ) {
@@ -132,6 +188,7 @@ export function ReviewerApp({ initialToken }: Props) {
     const firstUnreviewed = nextRecords.findIndex((record) => !reviewMap[record.databaseId]);
     setSessionId(nextSessionId);
     setSelectedSubjects(nextSelectedSubjects);
+    setSelectedDatabaseIds(nextSelectedDatabaseIds);
     setRecords(nextRecords);
     setSavedReviews(reviewMap);
     setIndex(firstUnreviewed >= 0 ? firstUnreviewed : 0);
@@ -143,15 +200,8 @@ export function ReviewerApp({ initialToken }: Props) {
 
   useEffect(() => {
     if (!current) return;
-    const saved = savedReviews[current.databaseId];
-    if (!saved) {
-      resetForm();
-      return;
-    }
-    setChoice(saved.choice);
-    setRevision(saved.revisedDescriptionHtml);
-    setComments(saved.comments);
-  }, [current?.databaseId, savedReviews]);
+    loadForm(currentSavedReview);
+  }, [current?.databaseId, currentSavedReview]);
 
   return (
     <div className="row g-4">
@@ -160,23 +210,36 @@ export function ReviewerApp({ initialToken }: Props) {
           <TokenInput label="Reviewer token" value={token} onChange={setToken} />
           {name && <div className="alert alert-success py-2 mt-3 mb-0">Signed in as {name}</div>}
         </div>
+        {sessionId && (
+          <div className="bg-white border rounded-2 p-3 mt-3 reviewer-session-sidebar">
+            <ReviewSessionNavigator
+              records={records}
+              currentIndex={index}
+              savedReviews={savedReviews}
+              onNavigate={navigateTo}
+            />
+          </div>
+        )}
       </aside>
       <section className="col-lg-9">
         {!sessionId ? (
           <ReviewerHome
             currentSession={currentSession}
             subjects={subjects}
+            databases={databases}
             selected={selectedSubjects}
+            selectedDatabaseIds={selectedDatabaseIds}
             onChange={setSelectedSubjects}
+            onDatabaseChange={setSelectedDatabaseIds}
             onResume={() => void resumeSession()}
             onStart={() => void startSession()}
-            disabled={!token || selectedSubjects.length === 0}
+            disabled={!token || (selectedSubjects.length === 0 && selectedDatabaseIds.length === 0)}
           />
         ) : (
           <ReviewQueue
             current={current}
             progress={progress}
-            recordsCount={records.length}
+            records={records}
             index={index}
             choice={choice}
             revision={revision}
@@ -185,8 +248,8 @@ export function ReviewerApp({ initialToken }: Props) {
             onChoice={setChoice}
             onRevision={setRevision}
             onComments={setComments}
-            onSavePrevious={() => void saveAndMove(index - 1)}
-            onSaveNext={() => void saveAndMove(index + 1)}
+            onNavigate={navigateTo}
+            onSave={() => void saveReview()}
           />
         )}
       </section>
@@ -198,22 +261,38 @@ export function ReviewerApp({ initialToken }: Props) {
     setRevision("");
     setComments("");
   }
+
+  function loadForm(saved: ReviewSummary | undefined) {
+    if (!saved) {
+      resetForm();
+      return;
+    }
+    setChoice(saved.choice);
+    setRevision(saved.revisedDescriptionHtml);
+    setComments(saved.comments);
+  }
 }
 
 function ReviewerHome({
   currentSession,
   subjects,
+  databases,
   selected,
+  selectedDatabaseIds,
   disabled,
   onChange,
+  onDatabaseChange,
   onResume,
   onStart
 }: {
   currentSession: ReviewerSessionSummary | null;
   subjects: string[];
+  databases: DatabaseOption[];
   selected: string[];
+  selectedDatabaseIds: string[];
   disabled: boolean;
   onChange: (subjects: string[]) => void;
+  onDatabaseChange: (databaseIds: string[]) => void;
   onResume: () => void;
   onStart: () => void;
 }) {
@@ -226,6 +305,12 @@ function ReviewerHome({
               <h2 className="h5 mb-1">Previous session</h2>
               <div className="text-secondary small">Last modified {formatDate(currentSession.updatedAt)}</div>
               <div className="mt-2">{currentSession.selectedSubjects.join("; ")}</div>
+              {currentSession.selectedDatabaseIds.length > 0 && (
+                <div className="small text-secondary mt-1">
+                  {currentSession.selectedDatabaseIds.length} individually selected database
+                  {currentSession.selectedDatabaseIds.length === 1 ? "" : "s"}
+                </div>
+              )}
               <div className="small text-secondary mt-1">{currentSession.reviewCount} saved reviews</div>
             </div>
             <button className="btn btn-primary" onClick={onResume}>
@@ -236,8 +321,11 @@ function ReviewerHome({
       )}
       <SubjectSelector
         subjects={subjects}
+        databases={databases}
         selected={selected}
+        selectedDatabaseIds={selectedDatabaseIds}
         onChange={onChange}
+        onDatabaseChange={onDatabaseChange}
         onStart={onStart}
         disabled={disabled}
         buttonLabel={currentSession ? "Start new session" : "Start review"}
@@ -248,22 +336,29 @@ function ReviewerHome({
 
 function SubjectSelector({
   subjects,
+  databases,
   selected,
+  selectedDatabaseIds,
   disabled,
   onChange,
+  onDatabaseChange,
   onStart,
   buttonLabel
 }: {
   subjects: string[];
+  databases: DatabaseOption[];
   selected: string[];
+  selectedDatabaseIds: string[];
   disabled: boolean;
   onChange: (subjects: string[]) => void;
+  onDatabaseChange: (databaseIds: string[]) => void;
   onStart: () => void;
   buttonLabel: string;
 }) {
   return (
     <div className="bg-white border rounded-2 p-4">
       <h2 className="h5">Select subjects</h2>
+      <p>Select your subjects of expertise. These subjects will be used to match databases for your review.</p>
       <div className="subject-grid my-3">
         {subjects.map((subject) => (
           <label className="form-check mb-2" key={subject}>
@@ -279,6 +374,9 @@ function SubjectSelector({
           </label>
         ))}
       </div>
+      <div className="border-top pt-3 mb-3">
+        <DatabaseCombobox databases={databases} selectedIds={selectedDatabaseIds} onChange={onDatabaseChange} />
+      </div>
       <button className="btn btn-primary" disabled={disabled} onClick={onStart}>
         {buttonLabel}
       </button>
@@ -289,7 +387,7 @@ function SubjectSelector({
 function ReviewQueue({
   current,
   progress,
-  recordsCount,
+  records,
   index,
   choice,
   revision,
@@ -298,12 +396,12 @@ function ReviewQueue({
   onChoice,
   onRevision,
   onComments,
-  onSavePrevious,
-  onSaveNext
+  onNavigate,
+  onSave
 }: {
   current: DatabaseRecord | undefined;
   progress: string;
-  recordsCount: number;
+  records: DatabaseRecord[];
   index: number;
   choice: ReviewChoice | null;
   revision: string;
@@ -312,8 +410,8 @@ function ReviewQueue({
   onChoice: (choice: ReviewChoice) => void;
   onRevision: (value: string) => void;
   onComments: (value: string) => void;
-  onSavePrevious: () => void;
-  onSaveNext: () => void;
+  onNavigate: (index: number) => void;
+  onSave: () => void;
 }) {
   return (
     <div className="bg-white border rounded-2 p-4 queue-panel">
@@ -327,7 +425,7 @@ function ReviewQueue({
           )}
         </div>
         <div className="progress flex-grow-1 align-self-center" style={{ maxWidth: "280px", height: "10px" }}>
-          <div className="progress-bar" style={{ width: `${recordsCount ? ((index + 1) / recordsCount) * 100 : 0}%` }} />
+          <div className="progress-bar" style={{ width: `${records.length ? ((index + 1) / records.length) * 100 : 0}%` }} />
         </div>
       </div>
 
@@ -371,11 +469,19 @@ function ReviewQueue({
             <textarea className="form-control" rows={3} value={comments} onChange={(event) => onComments(event.target.value)} />
           </label>
           <div className="d-flex gap-2">
-            <button className="btn btn-outline-secondary" disabled={index === 0} onClick={onSavePrevious}>
-              Save & Previous
+            <button type="button" className="btn btn-outline-secondary" disabled={index === 0} onClick={() => onNavigate(index - 1)}>
+              Previous
             </button>
-            <button className="btn btn-primary" onClick={onSaveNext}>
-              Save & Next
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              disabled={index === records.length - 1}
+              onClick={() => onNavigate(index + 1)}
+            >
+              Next
+            </button>
+            <button type="button" className="btn btn-primary" onClick={onSave}>
+              Save
             </button>
           </div>
         </>

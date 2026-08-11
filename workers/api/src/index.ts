@@ -1,7 +1,10 @@
 import {
+  DatabaseRecordNameUpdateSchema,
+  DatabaseRecordStatusSchema,
   FinalDecisionUpsertSchema,
   ImportCommitSchema,
   ReviewerCreateSchema,
+  ReviewerUpdateSchema,
   ReviewUpsertSchema,
   SessionStartSchema,
   validateImportRecords
@@ -9,16 +12,29 @@ import {
 import { createReviewerToken, requireAdmin, requireReviewer } from "./auth";
 import {
   commitImport,
+  createReviewer,
   createReviewerSession,
+  deactivateReviewer,
   getActiveBatch,
   getAggregates,
   getCurrentReviewerSession,
   getCurrentReviewerSessionDetail,
-  listAllRecords,
+  getReviewer,
+  InactiveDatabaseError,
+  listDatabaseOptions,
+  listReviewers,
   listSubjects,
+  regenerateReviewerLink,
   saveFinalDecision,
+  updateReviewer,
   upsertReview
 } from "./db";
+import {
+  listAdminRecords,
+  listInactiveDatabaseIds,
+  updateDatabaseName,
+  updateDatabaseStatus
+} from "./databaseStatus";
 import { errorResponse, jsonResponse, optionsResponse, readJson } from "./http";
 import type { AuthedReviewer, Env } from "./types";
 
@@ -28,10 +44,13 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/health") return jsonResponse({ ok: true }, {}, env, request);
-      if (url.pathname.startsWith("/admin/")) return handleAdmin(request, env, url);
-      if (url.pathname.startsWith("/reviewer/")) return handleReviewer(request, env, url);
+      if (url.pathname.startsWith("/admin/")) return await handleAdmin(request, env, url);
+      if (url.pathname.startsWith("/reviewer/")) return await handleReviewer(request, env, url);
       return errorResponse("Not found", 404, env, request);
     } catch (error) {
+      if (error instanceof InactiveDatabaseError) {
+        return errorResponse(error.message, 409, env, request);
+      }
       const message = error instanceof Error ? error.message : "Unexpected error";
       return errorResponse(message, 500, env, request);
     }
@@ -57,30 +76,79 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
 
   if (request.method === "POST" && url.pathname === "/admin/reviewers") {
     const payload = ReviewerCreateSchema.parse(await readJson(request));
-    const now = new Date().toISOString();
-    const { token, tokenHash } = await createReviewerToken();
-    const id = crypto.randomUUID();
-    await env.DB.prepare(
-      "INSERT INTO reviewers (id, name, email, token_hash, active, created_at) VALUES (?, ?, ?, ?, 1, ?)"
-    )
-      .bind(id, payload.name, payload.email, tokenHash, now)
-      .run();
-    return jsonResponse({ id, token, reviewUrlPath: `/review/${token}` }, {}, env, request);
+    const credentials = await createReviewerToken();
+    const reviewer = await createReviewer(env, payload, credentials);
+    return jsonResponse(
+      { reviewer, id: reviewer.id, token: credentials.token, reviewUrlPath: reviewer.reviewUrlPath },
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "GET" && url.pathname === "/admin/reviewers") {
-    const reviewers = await env.DB.prepare(
-      "SELECT id, name, email, active, created_at FROM reviewers ORDER BY created_at DESC"
-    ).all();
-    return jsonResponse({ reviewers: reviewers.results }, {}, env, request);
+    return jsonResponse({ reviewers: await listReviewers(env) }, {}, env, request);
+  }
+
+  const reviewerRoute = parseReviewerRoute(url.pathname);
+
+  if (reviewerRoute && !reviewerRoute.action && request.method === "GET") {
+    const reviewer = await getReviewer(env, reviewerRoute.id);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer }, {}, env, request);
+  }
+
+  if (reviewerRoute && !reviewerRoute.action && request.method === "PUT") {
+    const payload = ReviewerUpdateSchema.parse(await readJson(request));
+    const reviewer = await updateReviewer(env, reviewerRoute.id, payload);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer }, {}, env, request);
+  }
+
+  if (reviewerRoute && !reviewerRoute.action && request.method === "DELETE") {
+    const reviewer = await deactivateReviewer(env, reviewerRoute.id);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer }, {}, env, request);
+  }
+
+  if (reviewerRoute?.action === "regenerate-link" && request.method === "POST") {
+    const credentials = await createReviewerToken();
+    const reviewer = await regenerateReviewerLink(env, reviewerRoute.id, credentials);
+    if (!reviewer) return errorResponse("Reviewer not found", 404, env, request);
+    return jsonResponse({ reviewer, token: credentials.token, reviewUrlPath: reviewer.reviewUrlPath }, {}, env, request);
   }
 
   if (request.method === "GET" && url.pathname === "/admin/records") {
-    return jsonResponse({ records: await listAllRecords(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+    return jsonResponse({ records: await listAdminRecords(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+  }
+
+  const databaseStatusRoute = parseDatabaseStatusRoute(url.pathname);
+  if (databaseStatusRoute && request.method === "PUT") {
+    const payload = DatabaseRecordStatusSchema.parse(await readJson(request));
+    const record = await updateDatabaseStatus(env, databaseStatusRoute.id, payload.active);
+    if (!record) return errorResponse("Database not found in the active import batch", 404, env, request);
+    return jsonResponse({ record }, {}, env, request);
+  }
+
+  const databaseNameRoute = parseDatabaseNameRoute(url.pathname);
+  if (databaseNameRoute && request.method === "PUT") {
+    const payload = DatabaseRecordNameUpdateSchema.parse(await readJson(request));
+    const record = await updateDatabaseName(env, databaseNameRoute.id, payload.databaseName);
+    if (!record) return errorResponse("Database not found in the active import batch", 404, env, request);
+    return jsonResponse({ record }, {}, env, request);
   }
 
   if (request.method === "GET" && url.pathname === "/admin/aggregates") {
-    return jsonResponse({ aggregates: await getAggregates(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+    return jsonResponse(
+      {
+        aggregates: await getAggregates(env),
+        activeBatch: await getActiveBatch(env),
+        inactiveDatabaseIds: await listInactiveDatabaseIds(env)
+      },
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "PUT" && url.pathname === "/admin/final-decisions") {
@@ -98,8 +166,21 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   const reviewer = authed as AuthedReviewer;
 
   if (request.method === "GET" && url.pathname === "/reviewer/me") {
+    const databases = await listDatabaseOptions(env);
+    const currentSession = await getCurrentReviewerSession(env, reviewer.id);
+    const activeDatabaseIds = new Set(databases.map((database) => database.databaseId));
     return jsonResponse(
-      { reviewer, subjects: await listSubjects(env), currentSession: await getCurrentReviewerSession(env, reviewer.id) },
+      {
+        reviewer,
+        subjects: await listSubjects(env),
+        databases,
+        currentSession: currentSession
+          ? {
+              ...currentSession,
+              selectedDatabaseIds: currentSession.selectedDatabaseIds.filter((id) => activeDatabaseIds.has(id))
+            }
+          : null
+      },
       {},
       env,
       request
@@ -109,10 +190,12 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   if (request.method === "GET" && url.pathname === "/reviewer/session/current") {
     const detail = await getCurrentReviewerSessionDetail(env, reviewer.id);
     if (!detail) return errorResponse("No review session found", 404, env, request);
+    const activeDatabaseIds = new Set((await listDatabaseOptions(env)).map((database) => database.databaseId));
     return jsonResponse(
       {
         sessionId: detail.session.id,
         selectedSubjects: detail.session.selectedSubjects,
+        selectedDatabaseIds: detail.session.selectedDatabaseIds.filter((id) => activeDatabaseIds.has(id)),
         records: detail.records,
         reviews: detail.reviews
       },
@@ -126,7 +209,12 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
     const payload = SessionStartSchema.parse(await readJson(request));
     const batch = await getActiveBatch(env);
     if (!batch) return errorResponse("No active import batch", 409, env, request);
-    return jsonResponse(await createReviewerSession(env, reviewer.id, payload.selectedSubjects), {}, env, request);
+    return jsonResponse(
+      await createReviewerSession(env, reviewer.id, payload.selectedSubjects, payload.selectedDatabaseIds),
+      {},
+      env,
+      request
+    );
   }
 
   if (request.method === "PUT" && url.pathname === "/reviewer/reviews") {
@@ -136,6 +224,30 @@ async function handleReviewer(request: Request, env: Env, url: URL): Promise<Res
   }
 
   return errorResponse("Reviewer route not found", 404, env, request);
+}
+
+function parseReviewerRoute(pathname: string): { id: string; action?: string } | null {
+  const match = pathname.match(/^\/admin\/reviewers\/([^/]+)(?:\/([^/]+))?$/);
+  if (!match) return null;
+  const id = match[1];
+  if (!id) return null;
+  const action = match[2];
+  return {
+    id: decodeURIComponent(id),
+    action: action ? decodeURIComponent(action) : undefined
+  };
+}
+
+function parseDatabaseStatusRoute(pathname: string): { id: string } | null {
+  const match = pathname.match(/^\/admin\/records\/([^/]+)\/status$/);
+  const id = match?.[1];
+  return id ? { id: decodeURIComponent(id) } : null;
+}
+
+function parseDatabaseNameRoute(pathname: string): { id: string } | null {
+  const match = pathname.match(/^\/admin\/records\/([^/]+)\/name$/);
+  const id = match?.[1];
+  return id ? { id: decodeURIComponent(id) } : null;
 }
 
 function withCors(response: Response, env: Env, request: Request): Response {

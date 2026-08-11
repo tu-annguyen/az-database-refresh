@@ -34,14 +34,23 @@ export const ImportCommitSchema = z.object({
   records: z.array(DatabaseRecordSchema).min(1)
 });
 
-export const ReviewerCreateSchema = z.object({
+export const ReviewerIdentitySchema = z.object({
   name: z.string().min(1),
   email: z.string().email()
 });
 
-export const SessionStartSchema = z.object({
-  selectedSubjects: z.array(z.string().min(1)).min(1)
-});
+export const ReviewerCreateSchema = ReviewerIdentitySchema;
+
+export const ReviewerUpdateSchema = ReviewerIdentitySchema;
+
+export const SessionStartSchema = z
+  .object({
+    selectedSubjects: z.array(z.string().min(1)),
+    selectedDatabaseIds: z.array(z.string().min(1)).default([])
+  })
+  .refine((value) => value.selectedSubjects.length > 0 || value.selectedDatabaseIds.length > 0, {
+    message: "Select at least one subject or database."
+  });
 
 export const ReviewUpsertSchema = z.object({
   sessionId: z.string().min(1),
@@ -60,13 +69,24 @@ export const FinalDecisionUpsertSchema = z.object({
   finalized: z.boolean().default(false)
 });
 
+export const DatabaseRecordStatusSchema = z.object({
+  active: z.boolean()
+});
+
+export const DatabaseRecordNameUpdateSchema = z.object({
+  databaseName: z.string().trim().min(1, "Database name is required.").max(255, "Database name is too long.")
+});
+
 export type ReviewChoice = z.infer<typeof ReviewChoiceSchema>;
 export type FinalDecision = z.infer<typeof FinalDecisionSchema>;
 export type DatabaseRecord = z.infer<typeof DatabaseRecordSchema>;
 export type ImportCommit = z.infer<typeof ImportCommitSchema>;
 export type ReviewerCreate = z.infer<typeof ReviewerCreateSchema>;
+export type ReviewerUpdate = z.infer<typeof ReviewerUpdateSchema>;
 export type ReviewUpsert = z.infer<typeof ReviewUpsertSchema>;
 export type FinalDecisionUpsert = z.infer<typeof FinalDecisionUpsertSchema>;
+export type DatabaseRecordStatus = z.infer<typeof DatabaseRecordStatusSchema>;
+export type DatabaseRecordNameUpdate = z.infer<typeof DatabaseRecordNameUpdateSchema>;
 
 export type ImportValidationResult = {
   errors: string[];

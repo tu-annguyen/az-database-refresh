@@ -1,4 +1,11 @@
-import { CHOICE_LABELS, FINAL_DECISION_LABELS, resolveFinalDescription, type FinalDecision } from "@az-refresh/shared";
+import {
+  CHOICE_LABELS,
+  FINAL_DECISION_LABELS,
+  hasOneSearchIcon,
+  resolveFinalDescription,
+  setOneSearchIcon,
+  type FinalDecision
+} from "@az-refresh/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { adminGetAggregates, adminSaveFinalDecision } from "../api";
@@ -8,6 +15,7 @@ import {
   downloadSpringshareWorkbook
 } from "../lib/files";
 import type { AdminAggregate } from "../types";
+import { DatabaseFilterCombobox } from "./DatabaseFilterCombobox";
 import { SafeHtml } from "./SafeHtml";
 
 type Props = {
@@ -17,11 +25,13 @@ type Props = {
 
 export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
   const [aggregates, setAggregates] = useState<AdminAggregate[]>([]);
+  const [inactiveDatabaseIds, setInactiveDatabaseIds] = useState<string[]>([]);
   const [sourceWorkbookBase64, setSourceWorkbookBase64] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [decision, setDecision] = useState<FinalDecision>("use_rewritten_a");
   const [selectedReviewId, setSelectedReviewId] = useState("");
   const [finalHtml, setFinalHtml] = useState("");
+  const [coveredInOneSearch, setCoveredInOneSearch] = useState(false);
   const [finalized, setFinalized] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -32,6 +42,7 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
     setStatus("Loading results...");
     const result = await adminGetAggregates(adminToken);
     setAggregates(result.aggregates);
+    setInactiveDatabaseIds(result.inactiveDatabaseIds);
     setSourceWorkbookBase64(result.activeBatch?.source_workbook_base64 ?? "");
     setSelectedId((current) => current || result.aggregates[0]?.record.databaseId || "");
     setStatus("");
@@ -39,15 +50,20 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
 
   async function saveDecision() {
     if (!selected) return;
-    await adminSaveFinalDecision(adminToken, {
-      databaseId: selected.record.databaseId,
-      decision,
-      selectedReviewId: selectedReviewId || null,
-      finalDescriptionHtml: finalHtml,
-      finalized
-    });
-    setStatus("Final decision saved.");
-    await load();
+    try {
+      await adminSaveFinalDecision(adminToken, {
+        databaseId: selected.record.databaseId,
+        decision,
+        selectedReviewId: selectedReviewId || null,
+        finalDescriptionHtml: finalHtml,
+        finalized
+      });
+      await load();
+      setStatus("Final decision saved.");
+    } catch (error) {
+      await load();
+      setStatus(error instanceof Error ? error.message : "Unable to save the final decision.");
+    }
   }
 
   function applyDecision(nextDecision: FinalDecision, reviewId = "") {
@@ -55,7 +71,18 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
     const review = selected.reviews.find((item) => item.id === reviewId);
     setDecision(nextDecision);
     setSelectedReviewId(reviewId);
-    setFinalHtml(resolveFinalDescription(nextDecision, selected.record, finalHtml, review ?? null));
+    const resolvedHtml = resolveFinalDescription(nextDecision, selected.record, finalHtml, review ?? null);
+    setFinalHtml(setOneSearchIcon(resolvedHtml, coveredInOneSearch));
+  }
+
+  function toggleOneSearchIcon(included: boolean) {
+    setCoveredInOneSearch(included);
+    setFinalHtml((current) => setOneSearchIcon(current, included));
+  }
+
+  function updateFinalHtml(html: string) {
+    setFinalHtml(html);
+    setCoveredInOneSearch(hasOneSearchIcon(html));
   }
 
   const sidebar = useMemo(
@@ -74,33 +101,30 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
           </button>
           <button
             className="btn btn-outline-success btn-sm"
-            onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, true)}
+            onClick={() =>
+              void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, inactiveDatabaseIds, true)
+            }
           >
             Draft XLSX
           </button>
           <button
             className="btn btn-success btn-sm"
-            onClick={() => void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, false)}
+            onClick={() =>
+              void downloadSpringshareWorkbook(sourceWorkbookBase64, aggregates, inactiveDatabaseIds, false)
+            }
           >
             Final XLSX
           </button>
         </div>
         <div className="small fw-semibold text-secondary mb-2">Databases</div>
-        <div className="list-group overflow-auto" style={{ maxHeight: "58vh" }}>
-          {aggregates.map((item) => (
-            <button
-              key={item.record.databaseId}
-              className={`list-group-item list-group-item-action ${selected?.record.databaseId === item.record.databaseId ? "active" : ""}`}
-              onClick={() => setSelectedId(item.record.databaseId)}
-            >
-              <div className="fw-semibold">{item.record.databaseName}</div>
-              <div className="small">Votes: {item.reviews.length} · {item.finalDecision?.finalized ? "finalized" : "open"}</div>
-            </button>
-          ))}
-        </div>
+        <DatabaseFilterCombobox
+          aggregates={aggregates}
+          selectedId={selected?.record.databaseId}
+          onSelect={setSelectedId}
+        />
       </div>
     ),
-    [adminToken, aggregates, load, selected?.record.databaseId, sourceWorkbookBase64]
+    [adminToken, aggregates, inactiveDatabaseIds, load, selected?.record.databaseId, sourceWorkbookBase64]
   );
 
   useEffect(() => {
@@ -117,7 +141,12 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
     const existing = selected.finalDecision;
     setDecision(existing?.decision ?? "use_rewritten_a");
     setSelectedReviewId(existing?.selectedReviewId ?? "");
-    setFinalHtml(existing?.finalDescriptionHtml || selected.record.rewrittenDescriptionAHtml);
+    const included = existing
+      ? hasOneSearchIcon(existing.finalDescriptionHtml)
+      : hasOneSearchIcon(selected.record.originalDescriptionHtml);
+    const description = existing?.finalDescriptionHtml || selected.record.rewrittenDescriptionAHtml;
+    setCoveredInOneSearch(included);
+    setFinalHtml(setOneSearchIcon(description, included));
     setFinalized(existing?.finalized ?? false);
   }, [selected?.record.databaseId]);
 
@@ -127,7 +156,8 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
         {selected && (
           <div className="bg-white border rounded-2 p-4">
             <h2 className="h5 mb-1">{selected.record.databaseName}</h2>
-            <div className="text-secondary small mb-3">ID {selected.record.databaseId}</div>
+            <div className="text-secondary small mb-1">ID {selected.record.databaseId}</div>
+            <DatabaseUrl url={selected.record.databaseUrl} />
             <VoteSummary item={selected} />
             <div className="row g-3 mt-1">
               <Description title="Original" html={selected.record.originalDescriptionHtml} onUse={() => applyDecision("use_original")} />
@@ -169,16 +199,35 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
                   </select>
                 </label>
               </div>
-              <div className="col-md-6 d-flex align-items-end">
+              <div className="col-md-6 d-flex flex-column justify-content-end align-items-start">
+                <label className="form-check mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={coveredInOneSearch}
+                    onChange={(event) => toggleOneSearchIcon(event.target.checked)}
+                  />
+                  <span className="form-check-label">Covered in OneSearch icon</span>
+                </label>
                 <label className="form-check mb-3">
-                  <input className="form-check-input" type="checkbox" checked={finalized} onChange={(event) => setFinalized(event.target.checked)} />
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={finalized}
+                    onChange={(event) => setFinalized(event.target.checked)}
+                  />
                   <span className="form-check-label">Finalized</span>
                 </label>
               </div>
             </div>
             <label className="form-label w-100">
               Final description
-              <textarea className="form-control" rows={6} value={finalHtml} onChange={(event) => setFinalHtml(event.target.value)} />
+              <textarea
+                className="form-control"
+                rows={6}
+                value={finalHtml}
+                onChange={(event) => updateFinalHtml(event.target.value)}
+              />
             </label>
             <button className="btn btn-primary" disabled={!adminToken} onClick={() => void saveDecision()}>
               Save final decision
@@ -189,6 +238,32 @@ export function AggregationPanel({ adminToken, onSidebarChange }: Props) {
       </section>
     </>
   );
+}
+
+function DatabaseUrl({ url }: { url: string }) {
+  if (!url) return <div className="mb-3" />;
+  const linkable = isHttpUrl(url);
+  return (
+    <div className="small mb-3">
+      <span className="text-secondary">Database URL: </span>
+      {linkable ? (
+        <a className="text-break" href={url} target="_blank" rel="noreferrer">
+          {url}
+        </a>
+      ) : (
+        <span className="text-break">{url}</span>
+      )}
+    </div>
+  );
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function VoteSummary({ item }: { item: AdminAggregate }) {

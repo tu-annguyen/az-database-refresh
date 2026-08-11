@@ -1,5 +1,12 @@
 import type { FinalDecisionUpsert, ImportCommit, ReviewUpsert } from "@az-refresh/shared";
-import type { AdminAggregate, Reviewer, ReviewerSessionSummary, ReviewSummary } from "./types";
+import type {
+  AdminAggregate,
+  AdminDatabaseRecord,
+  DatabaseOption,
+  Reviewer,
+  ReviewerSessionSummary,
+  ReviewSummary
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 
@@ -21,7 +28,7 @@ export async function adminCommitImport(adminToken: string, payload: ImportCommi
 }
 
 export async function adminCreateReviewer(adminToken: string, name: string, email: string) {
-  return apiFetch<{ id: string; token: string; reviewUrlPath: string }>(
+  return apiFetch<{ reviewer: Reviewer; id: string; token: string; reviewUrlPath: string | null }>(
     "/admin/reviewers",
     { method: "POST", body: { name, email } },
     { adminToken }
@@ -32,10 +39,58 @@ export async function adminGetReviewers(adminToken: string) {
   return apiFetch<{ reviewers: Reviewer[] }>("/admin/reviewers", {}, { adminToken });
 }
 
+export async function adminUpdateReviewer(adminToken: string, reviewerId: string, name: string, email: string) {
+  return apiFetch<{ reviewer: Reviewer }>(
+    `/admin/reviewers/${encodeURIComponent(reviewerId)}`,
+    { method: "PUT", body: { name, email } },
+    { adminToken }
+  );
+}
+
+export async function adminDeleteReviewer(adminToken: string, reviewerId: string) {
+  return apiFetch<{ reviewer: Reviewer }>(
+    `/admin/reviewers/${encodeURIComponent(reviewerId)}`,
+    { method: "DELETE" },
+    { adminToken }
+  );
+}
+
+export async function adminRegenerateReviewerLink(adminToken: string, reviewerId: string) {
+  return apiFetch<{ reviewer: Reviewer; token: string; reviewUrlPath: string | null }>(
+    `/admin/reviewers/${encodeURIComponent(reviewerId)}/regenerate-link`,
+    { method: "POST" },
+    { adminToken }
+  );
+}
+
 export async function adminGetAggregates(adminToken: string) {
-  return apiFetch<{ aggregates: AdminAggregate[]; activeBatch: { source_workbook_base64: string } | null }>(
+  return apiFetch<{
+    aggregates: AdminAggregate[];
+    activeBatch: { source_workbook_base64: string } | null;
+    inactiveDatabaseIds: string[];
+  }>(
     "/admin/aggregates",
     {},
+    { adminToken }
+  );
+}
+
+export async function adminGetDatabaseRecords(adminToken: string) {
+  return apiFetch<{ records: AdminDatabaseRecord[] }>("/admin/records", {}, { adminToken });
+}
+
+export async function adminUpdateDatabaseStatus(adminToken: string, databaseId: string, active: boolean) {
+  return apiFetch<{ record: AdminDatabaseRecord }>(
+    `/admin/records/${encodeURIComponent(databaseId)}/status`,
+    { method: "PUT", body: { active } },
+    { adminToken }
+  );
+}
+
+export async function adminUpdateDatabaseName(adminToken: string, databaseId: string, databaseName: string) {
+  return apiFetch<{ record: AdminDatabaseRecord }>(
+    `/admin/records/${encodeURIComponent(databaseId)}/name`,
+    { method: "PUT", body: { databaseName } },
     { adminToken }
   );
 }
@@ -45,17 +100,26 @@ export async function adminSaveFinalDecision(adminToken: string, payload: FinalD
 }
 
 export async function reviewerMe(reviewerToken: string) {
-  return apiFetch<{ reviewer: Reviewer; subjects: string[]; currentSession: ReviewerSessionSummary | null }>(
+  return apiFetch<{
+    reviewer: Reviewer;
+    subjects: string[];
+    databases: DatabaseOption[];
+    currentSession: ReviewerSessionSummary | null;
+  }>(
     "/reviewer/me",
     {},
     { reviewerToken }
   );
 }
 
-export async function reviewerStartSession(reviewerToken: string, selectedSubjects: string[]) {
+export async function reviewerStartSession(
+  reviewerToken: string,
+  selectedSubjects: string[],
+  selectedDatabaseIds: string[]
+) {
   return apiFetch<{ sessionId: string; records: ImportCommit["records"]; reviews: ReviewSummary[] }>(
     "/reviewer/session",
-    { method: "POST", body: { selectedSubjects } },
+    { method: "POST", body: { selectedSubjects, selectedDatabaseIds } },
     { reviewerToken }
   );
 }
@@ -64,6 +128,7 @@ export async function reviewerResumeSession(reviewerToken: string) {
   return apiFetch<{
     sessionId: string;
     selectedSubjects: string[];
+    selectedDatabaseIds: string[];
     records: ImportCommit["records"];
     reviews: ReviewSummary[];
   }>("/reviewer/session/current", {}, { reviewerToken });
@@ -71,6 +136,16 @@ export async function reviewerResumeSession(reviewerToken: string) {
 
 export async function reviewerSaveReview(reviewerToken: string, payload: ReviewUpsert) {
   return apiFetch<{ reviewId: string }>("/reviewer/reviews", { method: "PUT", body: payload }, { reviewerToken });
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 async function apiFetch<T>(
@@ -87,6 +162,6 @@ async function apiFetch<T>(
     body: init.body ? JSON.stringify(init.body) : undefined
   });
   const data = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `Request failed: ${response.status}`);
+  if (!response.ok) throw new ApiError(data.error ?? `Request failed: ${response.status}`, response.status);
   return data;
 }

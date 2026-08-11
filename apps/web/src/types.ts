@@ -37,12 +37,34 @@ export type Reviewer = {
   id: string;
   name: string;
   email: string;
+  active?: boolean;
+  createdAt?: string;
+  reviewUrlPath?: string | null;
+  latestSession?: ReviewerSessionProgress | null;
+};
+
+export type ReviewerSessionProgress = {
+  id: string;
+  startedAt: string;
+  updatedAt: string;
+  reviewCount: number;
+  totalCount: number;
 };
 
 export type ReviewerSessionSummary = {
   id: string;
   selectedSubjects: string[];
+  selectedDatabaseIds: string[];
   startedAt: string;
   updatedAt: string;
   reviewCount: number;
+};
+
+export type DatabaseOption = {
+  databaseId: string;
+  databaseName: string;
+};
+
+export type AdminDatabaseRecord = DatabaseOption & {
+  active: boolean;
 };

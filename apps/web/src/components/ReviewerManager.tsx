@@ -1,32 +1,130 @@
 import { useEffect, useState } from "react";
-import { adminCreateReviewer, adminGetReviewers } from "../api";
+import {
+  adminCreateReviewer,
+  adminDeleteReviewer,
+  adminGetReviewers,
+  adminRegenerateReviewerLink,
+  adminUpdateReviewer
+} from "../api";
 import type { Reviewer } from "../types";
 
 type Props = {
   adminToken: string;
 };
 
+type ReviewerDraft = {
+  name: string;
+  email: string;
+};
+
 export function ReviewerManager({ adminToken }: Props) {
   const [reviewers, setReviewers] = useState<Reviewer[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, ReviewerDraft>>({});
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [createdLink, setCreatedLink] = useState("");
   const [status, setStatus] = useState("");
+  const [busyReviewerId, setBusyReviewerId] = useState("");
+  const [creating, setCreating] = useState(false);
 
   async function load() {
-    if (!adminToken) return;
-    const result = await adminGetReviewers(adminToken);
-    setReviewers(result.reviewers);
+    if (!adminToken) {
+      applyReviewers([]);
+      return;
+    }
+    try {
+      const result = await adminGetReviewers(adminToken);
+      applyReviewers(result.reviewers);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to load reviewers.");
+    }
   }
 
   async function createReviewer() {
-    setStatus("Creating reviewer...");
-    const result = await adminCreateReviewer(adminToken, name, email);
-    setCreatedLink(`${window.location.origin}${result.reviewUrlPath}`);
-    setName("");
-    setEmail("");
-    setStatus("Reviewer link created.");
-    await load();
+    try {
+      setCreating(true);
+      setStatus("Creating reviewer...");
+      const result = await adminCreateReviewer(adminToken, name, email);
+      const reviewer = result.reviewer;
+      upsertReviewer(reviewer);
+      setCreatedLink(absoluteReviewUrl(reviewer.reviewUrlPath ?? result.reviewUrlPath));
+      setName("");
+      setEmail("");
+      setStatus("Reviewer link created.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to create reviewer.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function saveReviewer(reviewer: Reviewer) {
+    const draft = drafts[reviewer.id] ?? reviewerDraft(reviewer);
+    try {
+      setBusyReviewerId(reviewer.id);
+      setStatus("Saving reviewer...");
+      const result = await adminUpdateReviewer(adminToken, reviewer.id, draft.name, draft.email);
+      upsertReviewer(result.reviewer);
+      setStatus("Reviewer saved.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save reviewer.");
+    } finally {
+      setBusyReviewerId("");
+    }
+  }
+
+  async function deactivateReviewer(reviewer: Reviewer) {
+    if (!window.confirm(`Deactivate ${reviewer.name}'s reviewer link?`)) return;
+    try {
+      setBusyReviewerId(reviewer.id);
+      setStatus("Deactivating reviewer...");
+      const result = await adminDeleteReviewer(adminToken, reviewer.id);
+      upsertReviewer(result.reviewer);
+      setStatus("Reviewer deactivated.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to deactivate reviewer.");
+    } finally {
+      setBusyReviewerId("");
+    }
+  }
+
+  async function regenerateLink(reviewer: Reviewer) {
+    try {
+      setBusyReviewerId(reviewer.id);
+      setStatus("Regenerating reviewer link...");
+      const result = await adminRegenerateReviewerLink(adminToken, reviewer.id);
+      upsertReviewer(result.reviewer);
+      setCreatedLink(absoluteReviewUrl(result.reviewer.reviewUrlPath ?? result.reviewUrlPath));
+      setStatus("Reviewer link regenerated.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to regenerate reviewer link.");
+    } finally {
+      setBusyReviewerId("");
+    }
+  }
+
+  function applyReviewers(nextReviewers: Reviewer[]) {
+    setReviewers(nextReviewers);
+    setDrafts(Object.fromEntries(nextReviewers.map((reviewer) => [reviewer.id, reviewerDraft(reviewer)])));
+  }
+
+  function updateDraft(reviewerId: string, field: keyof ReviewerDraft, value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [reviewerId]: {
+        ...(current[reviewerId] ?? { name: "", email: "" }),
+        [field]: value
+      }
+    }));
+  }
+
+  function upsertReviewer(nextReviewer: Reviewer) {
+    setReviewers((current) =>
+      current.some((reviewer) => reviewer.id === nextReviewer.id)
+        ? current.map((reviewer) => (reviewer.id === nextReviewer.id ? nextReviewer : reviewer))
+        : [nextReviewer, ...current]
+    );
+    setDrafts((current) => ({ ...current, [nextReviewer.id]: reviewerDraft(nextReviewer) }));
   }
 
   useEffect(() => {
@@ -46,11 +144,15 @@ export function ReviewerManager({ adminToken }: Props) {
         <div className="col-md-5">
           <label className="form-label">
             Email
-            <input className="form-control" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input className="form-control" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
         </div>
         <div className="col-md-2">
-          <button className="btn btn-primary w-100" disabled={!adminToken || !name || !email} onClick={() => void createReviewer()}>
+          <button
+            className="btn btn-primary w-100"
+            disabled={!adminToken || !name || !email || creating}
+            onClick={() => void createReviewer()}
+          >
             Create
           </button>
         </div>
@@ -68,18 +170,181 @@ export function ReviewerManager({ adminToken }: Props) {
             <tr>
               <th>Name</th>
               <th>Email</th>
+              <th>Reviewer link</th>
+              <th>Latest session</th>
+              <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {reviewers.map((reviewer) => (
-              <tr key={reviewer.id}>
-                <td>{reviewer.name}</td>
-                <td>{reviewer.email}</td>
-              </tr>
+              <ReviewerRow
+                key={reviewer.id}
+                reviewer={reviewer}
+                draft={drafts[reviewer.id] ?? reviewerDraft(reviewer)}
+                busy={busyReviewerId === reviewer.id}
+                canUseAdminActions={Boolean(adminToken)}
+                onDraftChange={updateDraft}
+                onSave={saveReviewer}
+                onDeactivate={deactivateReviewer}
+                onRegenerateLink={regenerateLink}
+              />
             ))}
+            {reviewers.length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-secondary">
+                  No reviewers found.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
     </div>
   );
+}
+
+type ReviewerRowProps = {
+  reviewer: Reviewer;
+  draft: ReviewerDraft;
+  busy: boolean;
+  canUseAdminActions: boolean;
+  onDraftChange: (reviewerId: string, field: keyof ReviewerDraft, value: string) => void;
+  onSave: (reviewer: Reviewer) => void;
+  onDeactivate: (reviewer: Reviewer) => void;
+  onRegenerateLink: (reviewer: Reviewer) => void;
+};
+
+function ReviewerRow({
+  reviewer,
+  draft,
+  busy,
+  canUseAdminActions,
+  onDraftChange,
+  onSave,
+  onDeactivate,
+  onRegenerateLink
+}: ReviewerRowProps) {
+  const reviewerLink = absoluteReviewUrl(reviewer.reviewUrlPath);
+  const hasChanges = draft.name !== reviewer.name || draft.email !== reviewer.email;
+  const canSave = canUseAdminActions && draft.name.length > 0 && draft.email.length > 0 && hasChanges && !busy;
+  const active = reviewer.active !== false;
+
+  return (
+    <tr>
+      <td>
+        <input
+          className="form-control form-control-sm"
+          value={draft.name}
+          onChange={(event) => onDraftChange(reviewer.id, "name", event.target.value)}
+        />
+      </td>
+      <td>
+        <input
+          className="form-control form-control-sm"
+          type="email"
+          value={draft.email}
+          onChange={(event) => onDraftChange(reviewer.id, "email", event.target.value)}
+        />
+      </td>
+      <td className="reviewer-link-cell">
+        {reviewerLink ? (
+          <input
+            className="form-control form-control-sm"
+            readOnly
+            value={reviewerLink}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+        ) : (
+          <span className="text-secondary">No active link</span>
+        )}
+      </td>
+      <td>
+        <SessionProgress reviewer={reviewer} />
+      </td>
+      <td>
+        <span className={`badge ${active ? "text-bg-success" : "text-bg-secondary"}`}>{active ? "Active" : "Inactive"}</span>
+      </td>
+      <td>
+        <div className="d-flex flex-wrap gap-1">
+          <button className="btn btn-sm btn-outline-primary" disabled={!canSave} onClick={() => onSave(reviewer)}>
+            Save
+          </button>
+          <button
+            className="btn btn-sm btn-outline-secondary"
+            disabled={!canUseAdminActions || busy}
+            onClick={() => onRegenerateLink(reviewer)}
+          >
+            Regenerate
+          </button>
+          <button
+            className="btn btn-sm btn-outline-danger"
+            disabled={!canUseAdminActions || busy || !active}
+            onClick={() => onDeactivate(reviewer)}
+          >
+            Deactivate
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function SessionProgress({ reviewer }: { reviewer: Reviewer }) {
+  const session = reviewer.latestSession;
+  if (!session) return <span className="text-secondary">Not started</span>;
+
+  const percentage = session.totalCount > 0 ? Math.min(100, (session.reviewCount / session.totalCount) * 100) : 0;
+  const progressLabel = `${session.reviewCount} of ${session.totalCount} saved`;
+
+  return (
+    <div style={{ minWidth: "9rem" }}>
+      <div className="small">{progressLabel}</div>
+      <div
+        className="progress mt-1"
+        role="progressbar"
+        aria-label={`${reviewer.name}'s most recent review session: ${progressLabel}`}
+        aria-valuenow={session.reviewCount}
+        aria-valuemin={0}
+        aria-valuemax={session.totalCount}
+        style={{ height: "6px" }}
+      >
+        <div className="progress-bar" style={{ width: `${percentage}%` }} />
+      </div>
+      <div className="small text-secondary mt-1" title={formatDate(session.updatedAt)}>
+        Updated {formatRelativeDate(session.updatedAt)}
+      </div>
+    </div>
+  );
+}
+
+function reviewerDraft(reviewer: Reviewer): ReviewerDraft {
+  return { name: reviewer.name, email: reviewer.email };
+}
+
+function absoluteReviewUrl(path: string | null | undefined): string {
+  return path ? `${window.location.origin}${path}` : "";
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function formatRelativeDate(value: string): string {
+  const elapsedSeconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+  const intervals: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 60 * 60 * 24 * 365],
+    ["month", 60 * 60 * 24 * 30],
+    ["day", 60 * 60 * 24],
+    ["hour", 60 * 60],
+    ["minute", 60]
+  ];
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const interval = intervals.find(([, seconds]) => Math.abs(elapsedSeconds) >= seconds);
+  return interval
+    ? formatter.format(Math.round(elapsedSeconds / interval[1]), interval[0])
+    : formatter.format(elapsedSeconds, "second");
 }

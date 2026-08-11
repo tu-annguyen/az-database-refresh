@@ -1,5 +1,11 @@
 {
   "buildCommand": "npm --workspace apps/web run build",
   "outputDirectory": "apps/web/dist",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "rewrites": [
+    {
+      "source": "/review/:path*",
+      "destination": "/"
+    }
+  ]
 }
