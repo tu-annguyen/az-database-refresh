@@ -4,6 +4,7 @@ import type {
   AdminDatabaseRecord,
   DatabaseOption,
   Reviewer,
+  ResultAdmin,
   ReviewerSessionSummary,
   ReviewSummary
 } from "./types";
@@ -13,6 +14,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 type RequestOptions = {
   adminToken?: string;
   reviewerToken?: string;
+  resultAdminToken?: string;
 };
 
 export async function adminValidateImport(adminToken: string, payload: ImportCommit) {
@@ -63,6 +65,34 @@ export async function adminRegenerateReviewerLink(adminToken: string, reviewerId
   );
 }
 
+export async function adminCreateResultAdmin(adminToken: string, name: string, email: string) {
+  return apiFetch<{ admin: ResultAdmin; token: string; adminReviewUrlPath: string | null }>(
+    "/admin/result-admins", { method: "POST", body: { name, email } }, { adminToken }
+  );
+}
+
+export async function adminGetResultAdmins(adminToken: string) {
+  return apiFetch<{ admins: ResultAdmin[] }>("/admin/result-admins", {}, { adminToken });
+}
+
+export async function adminUpdateResultAdmin(adminToken: string, id: string, name: string, email: string) {
+  return apiFetch<{ admin: ResultAdmin }>(
+    `/admin/result-admins/${encodeURIComponent(id)}`, { method: "PUT", body: { name, email } }, { adminToken }
+  );
+}
+
+export async function adminDeactivateResultAdmin(adminToken: string, id: string) {
+  return apiFetch<{ admin: ResultAdmin }>(
+    `/admin/result-admins/${encodeURIComponent(id)}`, { method: "DELETE" }, { adminToken }
+  );
+}
+
+export async function adminRegenerateResultAdminLink(adminToken: string, id: string) {
+  return apiFetch<{ admin: ResultAdmin; token: string; adminReviewUrlPath: string | null }>(
+    `/admin/result-admins/${encodeURIComponent(id)}/regenerate-link`, { method: "POST" }, { adminToken }
+  );
+}
+
 export async function adminGetAggregates(adminToken: string) {
   return apiFetch<{
     aggregates: AdminAggregate[];
@@ -77,6 +107,12 @@ export async function adminGetAggregates(adminToken: string) {
 
 export async function adminGetDatabaseRecords(adminToken: string) {
   return apiFetch<{ records: AdminDatabaseRecord[] }>("/admin/records", {}, { adminToken });
+}
+
+export async function adminUpdateDatabaseAssignments(adminToken: string, databaseIds: string[], adminId: string | null) {
+  return apiFetch<{ records: AdminDatabaseRecord[] }>(
+    "/admin/records/assignments", { method: "PUT", body: { databaseIds, adminId } }, { adminToken }
+  );
 }
 
 export async function adminUpdateDatabaseStatus(adminToken: string, databaseId: string, active: boolean) {
@@ -97,6 +133,24 @@ export async function adminUpdateDatabaseName(adminToken: string, databaseId: st
 
 export async function adminSaveFinalDecision(adminToken: string, payload: FinalDecisionUpsert) {
   return apiFetch<{ ok: true }>("/admin/final-decisions", { method: "PUT", body: payload }, { adminToken });
+}
+
+export async function resultAdminMe(token: string) {
+  return apiFetch<{ admin: Pick<ResultAdmin, "id" | "name" | "email"> }>(
+    "/result-admin/me", {}, { resultAdminToken: token }
+  );
+}
+
+export async function resultAdminGetAggregates(token: string) {
+  return apiFetch<{ aggregates: AdminAggregate[] }>(
+    "/result-admin/aggregates", {}, { resultAdminToken: token }
+  );
+}
+
+export async function resultAdminSaveFinalDecision(token: string, payload: FinalDecisionUpsert) {
+  return apiFetch<{ ok: true }>(
+    "/result-admin/final-decisions", { method: "PUT", body: payload }, { resultAdminToken: token }
+  );
 }
 
 export async function reviewerMe(reviewerToken: string) {
@@ -156,6 +210,7 @@ async function apiFetch<T>(
   const headers = new Headers({ "content-type": "application/json" });
   if (options.adminToken) headers.set("authorization", `Bearer ${options.adminToken}`);
   if (options.reviewerToken) headers.set("authorization", `Bearer ${options.reviewerToken}`);
+  if (options.resultAdminToken) headers.set("authorization", `Bearer ${options.resultAdminToken}`);
   const response = await fetch(`${API_BASE}${path}`, {
     method: init.method ?? "GET",
     headers,

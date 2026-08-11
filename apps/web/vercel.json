@@ -3,6 +3,10 @@
     {
       "source": "/review/:path*",
       "destination": "/"
+    },
+    {
+      "source": "/admin-review/:path*",
+      "destination": "/"
     }
   ]
 }

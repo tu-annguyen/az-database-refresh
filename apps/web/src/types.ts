@@ -67,4 +67,16 @@ export type DatabaseOption = {
 
 export type AdminDatabaseRecord = DatabaseOption & {
   active: boolean;
+  voteCount: number;
+  assignedAdminId: string | null;
+  assignedAdminName: string | null;
+};
+
+export type ResultAdmin = {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+  createdAt: string;
+  adminReviewUrlPath: string | null;
 };

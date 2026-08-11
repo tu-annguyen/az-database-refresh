@@ -1,4 +1,4 @@
-import type { AuthedReviewer, Env } from "./types";
+import type { AuthedResultAdmin, AuthedReviewer, Env } from "./types";
 
 export function requireAdmin(request: Request, env: Env): Response | null {
   const expected = env.ADMIN_TOKEN;
@@ -10,10 +10,28 @@ export function requireAdmin(request: Request, env: Env): Response | null {
 }
 
 export async function createReviewerToken(): Promise<{ token: string; tokenHash: string }> {
+  return createAccessToken();
+}
+
+export async function createAccessToken(): Promise<{ token: string; tokenHash: string }> {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   return { token, tokenHash: await sha256(token) };
+}
+
+export async function requireResultAdmin(request: Request, env: Env): Promise<AuthedResultAdmin | Response> {
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token) return new Response(JSON.stringify({ error: "Admin review authorization required" }), { status: 401 });
+  const tokenHash = await sha256(token);
+  const admin = await env.DB.prepare(
+    "SELECT id, name, email FROM result_admins WHERE token_hash = ? AND active = 1"
+  )
+    .bind(tokenHash)
+    .first<AuthedResultAdmin>();
+  if (!admin) return new Response(JSON.stringify({ error: "Admin review link is invalid or inactive" }), { status: 401 });
+  return admin;
 }
 
 export async function requireReviewer(request: Request, env: Env): Promise<AuthedReviewer | Response> {

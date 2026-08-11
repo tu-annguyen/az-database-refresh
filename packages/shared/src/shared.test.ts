@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SPRINGSHARE_HEADERS } from "./constants";
 import { resolveFinalDescription } from "./finalDescription";
 import { hasOneSearchIcon, ONESEARCH_ICON_HTML, setOneSearchIcon } from "./oneSearchIcon";
-import { DatabaseRecordNameUpdateSchema, SessionStartSchema } from "./schemas";
+import { DatabaseAssignmentsUpdateSchema, DatabaseRecordNameUpdateSchema, SessionStartSchema } from "./schemas";
 import { stripDangerousHtml } from "./sanitize";
 import { splitSubjects } from "./subjects";
 import { validateSpringshareHeaders } from "./validation";
@@ -70,5 +70,12 @@ describe("shared helpers", () => {
     expect(() => DatabaseRecordNameUpdateSchema.parse({ databaseName: "   " })).toThrow(
       "Database name is required."
     );
+  });
+
+  it("validates bulk database assignments and supports unassignment", () => {
+    expect(DatabaseAssignmentsUpdateSchema.parse({ databaseIds: ["db-1", "db-2"], adminId: "admin-1" }))
+      .toEqual({ databaseIds: ["db-1", "db-2"], adminId: "admin-1" });
+    expect(DatabaseAssignmentsUpdateSchema.parse({ databaseIds: ["db-1"], adminId: null }).adminId).toBeNull();
+    expect(() => DatabaseAssignmentsUpdateSchema.parse({ databaseIds: [], adminId: null })).toThrow();
   });
 });

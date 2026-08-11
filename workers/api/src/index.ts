@@ -1,15 +1,18 @@
 import {
   DatabaseRecordNameUpdateSchema,
   DatabaseRecordStatusSchema,
+  DatabaseAssignmentsUpdateSchema,
   FinalDecisionUpsertSchema,
   ImportCommitSchema,
   ReviewerCreateSchema,
   ReviewerUpdateSchema,
+  ResultAdminCreateSchema,
+  ResultAdminUpdateSchema,
   ReviewUpsertSchema,
   SessionStartSchema,
   validateImportRecords
 } from "@az-refresh/shared";
-import { createReviewerToken, requireAdmin, requireReviewer } from "./auth";
+import { createAccessToken, createReviewerToken, requireAdmin, requireResultAdmin, requireReviewer } from "./auth";
 import {
   commitImport,
   createReviewer,
@@ -37,6 +40,18 @@ import {
 } from "./databaseStatus";
 import { errorResponse, jsonResponse, optionsResponse, readJson } from "./http";
 import type { AuthedReviewer, Env } from "./types";
+import type { AuthedResultAdmin } from "./types";
+import {
+  AssignmentValidationError,
+  createResultAdmin,
+  deactivateResultAdmin,
+  isDatabaseAssignedTo,
+  listAssignedDatabaseIds,
+  listResultAdmins,
+  regenerateResultAdminLink,
+  updateDatabaseAssignments,
+  updateResultAdmin
+} from "./resultAdmins";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -45,11 +60,15 @@ export default {
     try {
       if (url.pathname === "/health") return jsonResponse({ ok: true }, {}, env, request);
       if (url.pathname.startsWith("/admin/")) return await handleAdmin(request, env, url);
+      if (url.pathname.startsWith("/result-admin/")) return await handleResultAdmin(request, env, url);
       if (url.pathname.startsWith("/reviewer/")) return await handleReviewer(request, env, url);
       return errorResponse("Not found", 404, env, request);
     } catch (error) {
       if (error instanceof InactiveDatabaseError) {
         return errorResponse(error.message, 409, env, request);
+      }
+      if (error instanceof AssignmentValidationError) {
+        return errorResponse(error.message, 400, env, request);
       }
       const message = error instanceof Error ? error.message : "Unexpected error";
       return errorResponse(message, 500, env, request);
@@ -90,6 +109,36 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
     return jsonResponse({ reviewers: await listReviewers(env) }, {}, env, request);
   }
 
+  if (request.method === "POST" && url.pathname === "/admin/result-admins") {
+    const payload = ResultAdminCreateSchema.parse(await readJson(request));
+    const credentials = await createAccessToken();
+    const admin = await createResultAdmin(env, payload, credentials);
+    return jsonResponse({ admin, token: credentials.token, adminReviewUrlPath: admin.adminReviewUrlPath }, {}, env, request);
+  }
+
+  if (request.method === "GET" && url.pathname === "/admin/result-admins") {
+    return jsonResponse({ admins: await listResultAdmins(env) }, {}, env, request);
+  }
+
+  const resultAdminRoute = parseResultAdminRoute(url.pathname);
+  if (resultAdminRoute && !resultAdminRoute.action && request.method === "PUT") {
+    const payload = ResultAdminUpdateSchema.parse(await readJson(request));
+    const admin = await updateResultAdmin(env, resultAdminRoute.id, payload);
+    if (!admin) return errorResponse("Admin not found", 404, env, request);
+    return jsonResponse({ admin }, {}, env, request);
+  }
+  if (resultAdminRoute && !resultAdminRoute.action && request.method === "DELETE") {
+    const admin = await deactivateResultAdmin(env, resultAdminRoute.id);
+    if (!admin) return errorResponse("Admin not found", 404, env, request);
+    return jsonResponse({ admin }, {}, env, request);
+  }
+  if (resultAdminRoute?.action === "regenerate-link" && request.method === "POST") {
+    const credentials = await createAccessToken();
+    const admin = await regenerateResultAdminLink(env, resultAdminRoute.id, credentials);
+    if (!admin) return errorResponse("Admin not found", 404, env, request);
+    return jsonResponse({ admin, token: credentials.token, adminReviewUrlPath: admin.adminReviewUrlPath }, {}, env, request);
+  }
+
   const reviewerRoute = parseReviewerRoute(url.pathname);
 
   if (reviewerRoute && !reviewerRoute.action && request.method === "GET") {
@@ -120,6 +169,12 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
 
   if (request.method === "GET" && url.pathname === "/admin/records") {
     return jsonResponse({ records: await listAdminRecords(env), activeBatch: await getActiveBatch(env) }, {}, env, request);
+  }
+
+  if (request.method === "PUT" && url.pathname === "/admin/records/assignments") {
+    const payload = DatabaseAssignmentsUpdateSchema.parse(await readJson(request));
+    await updateDatabaseAssignments(env, payload.databaseIds, payload.adminId);
+    return jsonResponse({ records: await listAdminRecords(env) }, {}, env, request);
   }
 
   const databaseStatusRoute = parseDatabaseStatusRoute(url.pathname);
@@ -158,6 +213,30 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
   }
 
   return errorResponse("Admin route not found", 404, env, request);
+}
+
+async function handleResultAdmin(request: Request, env: Env, url: URL): Promise<Response> {
+  const authed = await requireResultAdmin(request, env);
+  if (authed instanceof Response) return withCors(authed, env, request);
+  const admin = authed as AuthedResultAdmin;
+
+  if (request.method === "GET" && url.pathname === "/result-admin/me") {
+    return jsonResponse({ admin }, {}, env, request);
+  }
+  if (request.method === "GET" && url.pathname === "/result-admin/aggregates") {
+    const assignedIds = new Set(await listAssignedDatabaseIds(env, admin.id));
+    const aggregates = (await getAggregates(env)).filter((item) => assignedIds.has(item.record.databaseId));
+    return jsonResponse({ aggregates }, {}, env, request);
+  }
+  if (request.method === "PUT" && url.pathname === "/result-admin/final-decisions") {
+    const payload = FinalDecisionUpsertSchema.parse(await readJson(request));
+    if (!await isDatabaseAssignedTo(env, admin.id, payload.databaseId)) {
+      return errorResponse("This database is not assigned to you.", 403, env, request);
+    }
+    await saveFinalDecision(env, payload, `result-admin:${admin.id}`);
+    return jsonResponse({ ok: true }, {}, env, request);
+  }
+  return errorResponse("Admin review route not found", 404, env, request);
 }
 
 async function handleReviewer(request: Request, env: Env, url: URL): Promise<Response> {
@@ -235,6 +314,16 @@ function parseReviewerRoute(pathname: string): { id: string; action?: string } |
   return {
     id: decodeURIComponent(id),
     action: action ? decodeURIComponent(action) : undefined
+  };
+}
+
+function parseResultAdminRoute(pathname: string): { id: string; action?: string } | null {
+  const match = pathname.match(/^\/admin\/result-admins\/([^/]+)(?:\/([^/]+))?$/);
+  const id = match?.[1];
+  if (!id) return null;
+  return {
+    id: decodeURIComponent(id),
+    action: match?.[2] ? decodeURIComponent(match[2]) : undefined
   };
 }
 
