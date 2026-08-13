@@ -75,6 +75,7 @@ export const FinalDecisionUpsertSchema = z.object({
   decision: FinalDecisionSchema,
   finalDescriptionHtml: z.string().optional().default(""),
   selectedReviewId: z.string().optional().nullable(),
+  artificialIntelligenceIcon: z.boolean().default(false),
   finalized: z.boolean().default(false)
 });
 

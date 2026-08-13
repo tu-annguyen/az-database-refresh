@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPRINGSHARE_HEADERS } from "@az-refresh/shared";
+import { ONESEARCH_ICON_HTML, SPRINGSHARE_HEADERS } from "@az-refresh/shared";
 import ExcelJS from "exceljs";
 import type { AdminAggregate } from "../types";
 import { buildSpringshareWorkbook, parseImportFile } from "./files";
@@ -80,6 +80,25 @@ describe("workbook export", () => {
 
     expect(workbook.getWorksheet("Import Template")?.getRow(3).getCell(2).value).toBe("Renamed Database");
   });
+
+  it.each([true, false])("writes selected resource icon ids to the draft=%s workbook", async (draft) => {
+    const source = await buildExportWorkbookBase64();
+    const item = aggregate("active", "Active Database");
+    if (item.finalDecision) {
+      item.finalDecision.finalDescriptionHtml = `${ONESEARCH_ICON_HTML}\n<p>Final description</p>`;
+      item.finalDecision.artificialIntelligenceIcon = true;
+    }
+    const workbook = await buildSpringshareWorkbook(source, [item], [], draft);
+
+    expect(workbook.getWorksheet("Import Template")?.getRow(3).getCell(25).value).toBe("37359;37352");
+  });
+
+  it("clears the resource icons cell when no icons are selected", async () => {
+    const source = await buildExportWorkbookBase64("stale");
+    const workbook = await buildSpringshareWorkbook(source, [aggregate("active", "Active Database")], [], true);
+
+    expect(workbook.getWorksheet("Import Template")?.getRow(3).getCell(25).value).toBe("");
+  });
 });
 
 async function buildWorkbookFile(reviewHeaders: string[]): Promise<File> {
@@ -121,13 +140,14 @@ async function buildWorkbookFile(reviewHeaders: string[]): Promise<File> {
   });
 }
 
-async function buildExportWorkbookBase64(): Promise<string> {
+async function buildExportWorkbookBase64(resourceIcons = ""): Promise<string> {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Import Template");
   worksheet.addRow([...SPRINGSHARE_HEADERS]);
   worksheet.addRow([]);
   worksheet.addRow(["active", "Active Database"]);
   worksheet.addRow(["inactive", "Inactive Database"]);
+  worksheet.getRow(3).getCell(25).value = resourceIcons;
   const bytes = await workbook.xlsx.writeBuffer();
   return Buffer.from(new Uint8Array(bytes)).toString("base64");
 }
@@ -157,6 +177,7 @@ function aggregate(databaseId: string, databaseName: string): AdminAggregate {
       decision: "custom_final",
       selectedReviewId: null,
       finalDescriptionHtml: "<p>Final description</p>",
+      artificialIntelligenceIcon: false,
       finalized: true,
       finalizedAt: "2026-07-27T00:00:00.000Z",
       updatedAt: "2026-07-27T00:00:00.000Z"
