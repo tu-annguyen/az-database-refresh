@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SPRINGSHARE_HEADERS } from "./constants";
 import { resolveFinalDescription } from "./finalDescription";
-import { hasOneSearchIcon, ONESEARCH_ICON_HTML, setOneSearchIcon } from "./oneSearchIcon";
+import { hasOneSearchIcon, ONESEARCH_ICON_HTML, removeOneSearchIcon, setOneSearchIcon } from "./oneSearchIcon";
 import { DatabaseAssignmentsUpdateSchema, DatabaseRecordNameUpdateSchema, SessionStartSchema } from "./schemas";
 import { stripDangerousHtml } from "./sanitize";
 import { splitSubjects } from "./subjects";
@@ -40,6 +40,7 @@ describe("shared helpers", () => {
     const description = `${ONESEARCH_ICON_HTML}\n<p>Description</p>`;
 
     expect(hasOneSearchIcon(description)).toBe(true);
+    expect(removeOneSearchIcon(description)).toBe("<p>Description</p>");
     expect(setOneSearchIcon(description, false)).toBe("<p>Description</p>");
     expect(setOneSearchIcon("<p>Description</p>", true)).toBe(description);
     expect(setOneSearchIcon(description, true)).toBe(description);

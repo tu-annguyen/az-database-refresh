@@ -2,8 +2,8 @@ import {
   CHOICE_LABELS,
   FINAL_DECISION_LABELS,
   hasOneSearchIcon,
+  removeOneSearchIcon,
   resolveFinalDescription,
-  setOneSearchIcon,
   type FinalDecision
 } from "@az-refresh/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -79,6 +79,7 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
         decision,
         selectedReviewId: selectedReviewId || null,
         finalDescriptionHtml: finalHtml,
+        oneSearchIcon: coveredInOneSearch,
         artificialIntelligenceIcon,
         finalized
       };
@@ -98,17 +99,16 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
     setDecision(nextDecision);
     setSelectedReviewId(reviewId);
     const resolvedHtml = resolveFinalDescription(nextDecision, selected.record, finalHtml, review ?? null);
-    setFinalHtml(setOneSearchIcon(resolvedHtml, coveredInOneSearch));
+    setFinalHtml(removeOneSearchIcon(resolvedHtml));
   }
 
   function toggleOneSearchIcon(included: boolean) {
     setCoveredInOneSearch(included);
-    setFinalHtml((current) => setOneSearchIcon(current, included));
   }
 
   function updateFinalHtml(html: string) {
-    setFinalHtml(html);
-    setCoveredInOneSearch(hasOneSearchIcon(html));
+    if (hasOneSearchIcon(html)) setCoveredInOneSearch(true);
+    setFinalHtml(removeOneSearchIcon(html));
   }
 
   const sidebar = useMemo(
@@ -170,12 +170,12 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
     setDecision(existing?.decision ?? "use_rewritten_a");
     setSelectedReviewId(existing?.selectedReviewId ?? "");
     const included = existing
-      ? hasOneSearchIcon(existing.finalDescriptionHtml)
+      ? existing.oneSearchIcon || hasOneSearchIcon(existing.finalDescriptionHtml)
       : hasOneSearchIcon(selected.record.originalDescriptionHtml);
     const description = existing?.finalDescriptionHtml || selected.record.rewrittenDescriptionAHtml;
     setCoveredInOneSearch(included);
     setArtificialIntelligenceIcon(existing?.artificialIntelligenceIcon ?? false);
-    setFinalHtml(setOneSearchIcon(description, included));
+    setFinalHtml(removeOneSearchIcon(description));
     setFinalized(existing?.finalized ?? false);
   }, [selected?.record.databaseId]);
 

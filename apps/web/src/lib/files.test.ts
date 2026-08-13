@@ -85,12 +85,26 @@ describe("workbook export", () => {
     const source = await buildExportWorkbookBase64();
     const item = aggregate("active", "Active Database");
     if (item.finalDecision) {
-      item.finalDecision.finalDescriptionHtml = `${ONESEARCH_ICON_HTML}\n<p>Final description</p>`;
+      item.finalDecision.oneSearchIcon = true;
       item.finalDecision.artificialIntelligenceIcon = true;
     }
     const workbook = await buildSpringshareWorkbook(source, [item], [], draft);
 
     expect(workbook.getWorksheet("Import Template")?.getRow(3).getCell(25).value).toBe("37359;37352");
+    expect(workbook.getWorksheet("Import Template")?.getRow(3).getCell(11).value).toBe("<p>Final description</p>");
+  });
+
+  it("removes a legacy OneSearch image from the exported description", async () => {
+    const source = await buildExportWorkbookBase64();
+    const item = aggregate("active", "Active Database");
+    if (item.finalDecision) {
+      item.finalDecision.finalDescriptionHtml = `${ONESEARCH_ICON_HTML}\n<p>Final description</p>`;
+    }
+    const workbook = await buildSpringshareWorkbook(source, [item], [], false);
+    const row = workbook.getWorksheet("Import Template")?.getRow(3);
+
+    expect(row?.getCell(11).value).toBe("<p>Final description</p>");
+    expect(row?.getCell(25).value).toBe("37359");
   });
 
   it("clears the resource icons cell when no icons are selected", async () => {
@@ -177,6 +191,7 @@ function aggregate(databaseId: string, databaseName: string): AdminAggregate {
       decision: "custom_final",
       selectedReviewId: null,
       finalDescriptionHtml: "<p>Final description</p>",
+      oneSearchIcon: false,
       artificialIntelligenceIcon: false,
       finalized: true,
       finalizedAt: "2026-07-27T00:00:00.000Z",

@@ -12,9 +12,13 @@ export function hasOneSearchIcon(html: string): boolean {
   return ONESEARCH_ICON_PATTERN.test(html);
 }
 
+export function removeOneSearchIcon(html: string): string {
+  return html.replace(ONESEARCH_ICON_PATTERN, "").trim();
+}
+
 export function setOneSearchIcon(html: string, included: boolean): string {
   if (included && hasOneSearchIcon(html)) return html;
-  const withoutIcon = html.replace(ONESEARCH_ICON_PATTERN, "").trim();
+  const withoutIcon = removeOneSearchIcon(html);
   if (!included) return withoutIcon;
   return `${ONESEARCH_ICON_HTML}${withoutIcon ? `\n${withoutIcon}` : ""}`;
 }

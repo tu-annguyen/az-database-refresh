@@ -2,6 +2,7 @@ import {
   ARTIFICIAL_INTELLIGENCE_RESOURCE_ICON_ID,
   hasOneSearchIcon,
   ONESEARCH_RESOURCE_ICON_ID,
+  removeOneSearchIcon,
   SPRINGSHARE_HEADERS,
   type DatabaseRecord,
   type ImportCommit,
@@ -95,7 +96,10 @@ export async function buildSpringshareWorkbook(
   }
   const exportableAggregates = aggregates.filter((item) => draft || item.finalDecision?.finalized);
   const finalById = new Map(
-    exportableAggregates.map((item) => [item.record.databaseId, item.finalDecision?.finalDescriptionHtml ?? ""])
+    exportableAggregates.map((item) => [
+      item.record.databaseId,
+      removeOneSearchIcon(item.finalDecision?.finalDescriptionHtml ?? "")
+    ])
   );
   const resourceIconsById = new Map(
     exportableAggregates.map((item) => [item.record.databaseId, resourceIconIds(item)])
@@ -123,7 +127,7 @@ export async function buildSpringshareWorkbook(
 function resourceIconIds(item: AdminAggregate): string {
   const ids: string[] = [];
   const oneSearchSelected = item.finalDecision
-    ? hasOneSearchIcon(item.finalDecision.finalDescriptionHtml)
+    ? item.finalDecision.oneSearchIcon || hasOneSearchIcon(item.finalDecision.finalDescriptionHtml)
     : hasOneSearchIcon(item.record.originalDescriptionHtml);
   if (oneSearchSelected) ids.push(ONESEARCH_RESOURCE_ICON_ID);
   if (item.finalDecision?.artificialIntelligenceIcon) ids.push(ARTIFICIAL_INTELLIGENCE_RESOURCE_ICON_ID);

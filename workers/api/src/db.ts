@@ -1,4 +1,7 @@
-import type { DatabaseRecord, FinalDecisionUpsert, ImportCommit, ReviewerCreate, ReviewerUpdate, ReviewUpsert } from "@az-refresh/shared";
+import { hasOneSearchIcon, removeOneSearchIcon } from "@az-refresh/shared";
+import type {
+  DatabaseRecord, FinalDecisionUpsert, ImportCommit, ReviewerCreate, ReviewerUpdate, ReviewUpsert
+} from "@az-refresh/shared";
 import { CANONICAL_SUBJECTS, deriveSubjects } from "@az-refresh/shared";
 import {
   getLatestReviewerSessionProgress,
@@ -349,18 +352,21 @@ export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert, 
   const batch = await getActiveBatch(env);
   if (!batch) throw new Error("No active import batch");
   const now = new Date().toISOString();
+  const oneSearchIcon = payload.oneSearchIcon || hasOneSearchIcon(payload.finalDescriptionHtml);
+  const finalDescriptionHtml = removeOneSearchIcon(payload.finalDescriptionHtml);
   const result = await env.DB.prepare(
     `INSERT INTO final_decisions (
       import_batch_id, database_id, decision, selected_review_id, final_description_html,
-      artificial_intelligence_icon, finalized, finalized_by, finalized_at, updated_at
+      one_search_icon, artificial_intelligence_icon, finalized, finalized_by, finalized_at, updated_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     FROM database_records d
     WHERE d.import_batch_id = ? AND d.database_id = ? AND d.active = 1
     ON CONFLICT(import_batch_id, database_id) DO UPDATE SET
       decision = excluded.decision,
       selected_review_id = excluded.selected_review_id,
       final_description_html = excluded.final_description_html,
+      one_search_icon = excluded.one_search_icon,
       artificial_intelligence_icon = excluded.artificial_intelligence_icon,
       finalized = excluded.finalized,
       finalized_by = excluded.finalized_by,
@@ -372,7 +378,8 @@ export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert, 
       payload.databaseId,
       payload.decision,
       payload.selectedReviewId ?? null,
-      payload.finalDescriptionHtml,
+      finalDescriptionHtml,
+      oneSearchIcon ? 1 : 0,
       payload.artificialIntelligenceIcon ? 1 : 0,
       payload.finalized ? 1 : 0,
       payload.finalized ? finalizedBy : null,
@@ -488,6 +495,7 @@ type DecisionRow = {
   decision: "use_original" | "use_rewritten_a" | "use_rewritten_b" | "use_faculty_revision" | "custom_final" | "hold";
   selected_review_id: string | null;
   final_description_html: string;
+  one_search_icon: number;
   artificial_intelligence_icon: number;
   finalized: number;
   finalized_at: string | null;
@@ -563,11 +571,13 @@ function reviewFromRow(row: ReviewRow) {
 }
 
 function decisionFromRow(row: DecisionRow) {
+  const oneSearchIcon = row.one_search_icon === 1 || hasOneSearchIcon(row.final_description_html);
   return {
     databaseId: row.database_id,
     decision: row.decision,
     selectedReviewId: row.selected_review_id,
-    finalDescriptionHtml: row.final_description_html,
+    finalDescriptionHtml: removeOneSearchIcon(row.final_description_html),
+    oneSearchIcon,
     artificialIntelligenceIcon: row.artificial_intelligence_icon === 1,
     finalized: row.finalized === 1,
     finalizedAt: row.finalized_at,

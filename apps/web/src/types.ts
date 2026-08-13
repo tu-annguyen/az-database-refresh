@@ -28,6 +28,7 @@ export type FinalDecisionSummary = {
   decision: FinalDecision;
   selectedReviewId: string | null;
   finalDescriptionHtml: string;
+  oneSearchIcon: boolean;
   artificialIntelligenceIcon: boolean;
   finalized: boolean;
   finalizedAt: string | null;
