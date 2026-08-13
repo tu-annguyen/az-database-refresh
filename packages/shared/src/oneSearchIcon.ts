@@ -1,6 +1,9 @@
 export const ONESEARCH_ICON_HTML =
   '<img src="https://libapps.s3.amazonaws.com/accounts/7085/images/SmallOneSearchO.png" alt="Covered in OneSearch" title="Covered in OneSearch">';
 
+export const ONESEARCH_RESOURCE_ICON_ID = "37359";
+export const ARTIFICIAL_INTELLIGENCE_RESOURCE_ICON_ID = "37352";
+
 const ONESEARCH_ICON_PATTERN =
   /<img\b(?=[^>]*\bsrc\s*=\s*["']https:\/\/libapps\.s3\.amazonaws\.com\/accounts\/7085\/images\/SmallOneSearchO\.png["'])[^>]*>/gi;
 

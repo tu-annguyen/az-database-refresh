@@ -39,6 +39,7 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
   const [selectedReviewId, setSelectedReviewId] = useState("");
   const [finalHtml, setFinalHtml] = useState("");
   const [coveredInOneSearch, setCoveredInOneSearch] = useState(false);
+  const [artificialIntelligenceIcon, setArtificialIntelligenceIcon] = useState(false);
   const [finalized, setFinalized] = useState(false);
   const [status, setStatus] = useState("");
   const token = adminToken || resultAdminToken;
@@ -78,6 +79,7 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
         decision,
         selectedReviewId: selectedReviewId || null,
         finalDescriptionHtml: finalHtml,
+        artificialIntelligenceIcon,
         finalized
       };
       if (resultAdminToken) await resultAdminSaveFinalDecision(resultAdminToken, payload);
@@ -172,6 +174,7 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
       : hasOneSearchIcon(selected.record.originalDescriptionHtml);
     const description = existing?.finalDescriptionHtml || selected.record.rewrittenDescriptionAHtml;
     setCoveredInOneSearch(included);
+    setArtificialIntelligenceIcon(existing?.artificialIntelligenceIcon ?? false);
     setFinalHtml(setOneSearchIcon(description, included));
     setFinalized(existing?.finalized ?? false);
   }, [selected?.record.databaseId]);
@@ -234,6 +237,15 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
                     onChange={(event) => toggleOneSearchIcon(event.target.checked)}
                   />
                   <span className="form-check-label">Covered in OneSearch icon</span>
+                </label>
+                <label className="form-check mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={artificialIntelligenceIcon}
+                    onChange={(event) => setArtificialIntelligenceIcon(event.target.checked)}
+                  />
+                  <span className="form-check-label">Artificial intelligence</span>
                 </label>
                 <label className="form-check mb-3">
                   <input

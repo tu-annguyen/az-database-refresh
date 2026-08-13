@@ -1,4 +1,7 @@
 import {
+  ARTIFICIAL_INTELLIGENCE_RESOURCE_ICON_ID,
+  hasOneSearchIcon,
+  ONESEARCH_RESOURCE_ICON_ID,
   SPRINGSHARE_HEADERS,
   type DatabaseRecord,
   type ImportCommit,
@@ -90,14 +93,17 @@ export async function buildSpringshareWorkbook(
     const id = cellText(worksheet.getRow(row).getCell(1).value);
     if (inactiveIds.has(id)) worksheet.spliceRows(row, 1);
   }
+  const exportableAggregates = aggregates.filter((item) => draft || item.finalDecision?.finalized);
   const finalById = new Map(
-    aggregates
-      .filter((item) => draft || item.finalDecision?.finalized)
-      .map((item) => [item.record.databaseId, item.finalDecision?.finalDescriptionHtml ?? ""])
+    exportableAggregates.map((item) => [item.record.databaseId, item.finalDecision?.finalDescriptionHtml ?? ""])
+  );
+  const resourceIconsById = new Map(
+    exportableAggregates.map((item) => [item.record.databaseId, resourceIconIds(item)])
   );
   const databaseNameById = new Map(
     aggregates.map((item) => [item.record.databaseId, item.record.databaseName])
   );
+  const resourceIconsColumn = findHeaderColumn(rowValues(worksheet.getRow(1)), ["RESOURCE ICONS"]);
   for (let row = 3; row <= worksheet.rowCount; row += 1) {
     const id = cellText(worksheet.getRow(row).getCell(1).value);
     const databaseName = databaseNameById.get(id);
@@ -106,8 +112,22 @@ export async function buildSpringshareWorkbook(
     if (finalDescription !== undefined && finalDescription !== "") {
       worksheet.getRow(row).getCell(11).value = finalDescription;
     }
+    const resourceIcons = resourceIconsById.get(id);
+    if (resourceIcons !== undefined && resourceIconsColumn > 0) {
+      worksheet.getRow(row).getCell(resourceIconsColumn).value = resourceIcons;
+    }
   }
   return workbook;
+}
+
+function resourceIconIds(item: AdminAggregate): string {
+  const ids: string[] = [];
+  const oneSearchSelected = item.finalDecision
+    ? hasOneSearchIcon(item.finalDecision.finalDescriptionHtml)
+    : hasOneSearchIcon(item.record.originalDescriptionHtml);
+  if (oneSearchSelected) ids.push(ONESEARCH_RESOURCE_ICON_ID);
+  if (item.finalDecision?.artificialIntelligenceIcon) ids.push(ARTIFICIAL_INTELLIGENCE_RESOURCE_ICON_ID);
+  return ids.join(";");
 }
 
 function parseCsv(filename: string, buffer: ArrayBuffer): ParsedImport {

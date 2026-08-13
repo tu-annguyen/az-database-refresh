@@ -352,15 +352,16 @@ export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert, 
   const result = await env.DB.prepare(
     `INSERT INTO final_decisions (
       import_batch_id, database_id, decision, selected_review_id, final_description_html,
-      finalized, finalized_by, finalized_at, updated_at
+      artificial_intelligence_icon, finalized, finalized_by, finalized_at, updated_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     FROM database_records d
     WHERE d.import_batch_id = ? AND d.database_id = ? AND d.active = 1
     ON CONFLICT(import_batch_id, database_id) DO UPDATE SET
       decision = excluded.decision,
       selected_review_id = excluded.selected_review_id,
       final_description_html = excluded.final_description_html,
+      artificial_intelligence_icon = excluded.artificial_intelligence_icon,
       finalized = excluded.finalized,
       finalized_by = excluded.finalized_by,
       finalized_at = excluded.finalized_at,
@@ -372,6 +373,7 @@ export async function saveFinalDecision(env: Env, payload: FinalDecisionUpsert, 
       payload.decision,
       payload.selectedReviewId ?? null,
       payload.finalDescriptionHtml,
+      payload.artificialIntelligenceIcon ? 1 : 0,
       payload.finalized ? 1 : 0,
       payload.finalized ? finalizedBy : null,
       payload.finalized ? now : null,
@@ -486,6 +488,7 @@ type DecisionRow = {
   decision: "use_original" | "use_rewritten_a" | "use_rewritten_b" | "use_faculty_revision" | "custom_final" | "hold";
   selected_review_id: string | null;
   final_description_html: string;
+  artificial_intelligence_icon: number;
   finalized: number;
   finalized_at: string | null;
   updated_at: string;
@@ -565,6 +568,7 @@ function decisionFromRow(row: DecisionRow) {
     decision: row.decision,
     selectedReviewId: row.selected_review_id,
     finalDescriptionHtml: row.final_description_html,
+    artificialIntelligenceIcon: row.artificial_intelligence_icon === 1,
     finalized: row.finalized === 1,
     finalizedAt: row.finalized_at,
     updatedAt: row.updated_at
