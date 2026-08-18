@@ -2,11 +2,13 @@ import type { AdminAggregate } from "../types";
 
 export type ResultSort = "name" | "votes_asc" | "votes_desc";
 export type ResultVoteFilter = "all" | "none" | "some";
+export type ResultStatusFilter = "all" | "open" | "finalized";
 
 export function filterAndSortAggregates(
   aggregates: AdminAggregate[],
   query: string,
   voteFilter: ResultVoteFilter,
+  statusFilter: ResultStatusFilter,
   sort: ResultSort
 ): AdminAggregate[] {
   const normalized = query.trim().toLocaleLowerCase();
@@ -17,7 +19,10 @@ export function filterAndSortAggregates(
         || item.record.databaseId.toLocaleLowerCase().includes(normalized);
       const matchesVotes = voteFilter === "all"
         || (voteFilter === "none" ? item.reviews.length === 0 : item.reviews.length > 0);
-      return matchesQuery && matchesVotes;
+      const isFinalized = item.finalDecision?.finalized === true;
+      const matchesStatus = statusFilter === "all"
+        || (statusFilter === "finalized" ? isFinalized : !isFinalized);
+      return matchesQuery && matchesVotes && matchesStatus;
     })
     .sort((a, b) => {
       if (sort === "votes_asc") return a.reviews.length - b.reviews.length || byName(a, b);

@@ -4,22 +4,27 @@ import type { AdminAggregate } from "../types";
 import { filterAndSortAggregates } from "./resultFilters";
 
 describe("filterAndSortAggregates", () => {
-  const items = [aggregate("b", "Beta", 2), aggregate("a", "Alpha", 0), aggregate("c", "Charlie", 1)];
+  const items = [aggregate("b", "Beta", 2), aggregate("a", "Alpha", 0), aggregate("c", "Charlie", 1, true)];
 
   it("filters by text and vote status", () => {
-    expect(filterAndSortAggregates(items, "be", "some", "name").map(id)).toEqual(["b"]);
-    expect(filterAndSortAggregates(items, "", "none", "name").map(id)).toEqual(["a"]);
+    expect(filterAndSortAggregates(items, "be", "some", "all", "name").map(id)).toEqual(["b"]);
+    expect(filterAndSortAggregates(items, "", "none", "all", "name").map(id)).toEqual(["a"]);
+  });
+
+  it("filters by open or finalized status", () => {
+    expect(filterAndSortAggregates(items, "", "all", "open", "name").map(id)).toEqual(["a", "b"]);
+    expect(filterAndSortAggregates(items, "", "all", "finalized", "name").map(id)).toEqual(["c"]);
   });
 
   it("sorts vote counts in either direction with stable name tie-breaking", () => {
-    expect(filterAndSortAggregates(items, "", "all", "votes_asc").map(id)).toEqual(["a", "c", "b"]);
-    expect(filterAndSortAggregates(items, "", "all", "votes_desc").map(id)).toEqual(["b", "c", "a"]);
+    expect(filterAndSortAggregates(items, "", "all", "all", "votes_asc").map(id)).toEqual(["a", "c", "b"]);
+    expect(filterAndSortAggregates(items, "", "all", "all", "votes_desc").map(id)).toEqual(["b", "c", "a"]);
   });
 });
 
 function id(item: AdminAggregate): string { return item.record.databaseId; }
 
-function aggregate(databaseId: string, databaseName: string, votes: number): AdminAggregate {
+function aggregate(databaseId: string, databaseName: string, votes: number, finalized = false): AdminAggregate {
   const record: DatabaseRecord = {
     databaseId, databaseName, databaseUrl: "", originalDescriptionHtml: "", rewrittenDescriptionAHtml: "",
     rewrittenDescriptionBHtml: "", associatedSubjects: [], springshareMetadata: {}
@@ -32,7 +37,11 @@ function aggregate(databaseId: string, databaseName: string, votes: number): Adm
       databaseId, selectedSubjects: [], choice: "original" as const, revisedDescriptionHtml: "", comments: "",
       updatedAt: "", createdAt: ""
     })),
-    finalDecision: null,
+    finalDecision: finalized ? {
+      databaseId, decision: "original", selectedReviewId: null, finalDescriptionHtml: "",
+      oneSearchIcon: false, artificialIntelligenceIcon: false, finalized: true,
+      finalizedAt: "2026-07-27T00:00:00.000Z", updatedAt: "2026-07-27T00:00:00.000Z"
+    } : null,
     completionStatus: votes ? "reviewed" : "unreviewed"
   };
 }

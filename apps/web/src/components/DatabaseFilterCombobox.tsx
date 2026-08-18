@@ -1,6 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AdminAggregate } from "../types";
-import { filterAndSortAggregates, type ResultSort, type ResultVoteFilter } from "../lib/resultFilters";
+import {
+  filterAndSortAggregates,
+  type ResultSort,
+  type ResultStatusFilter,
+  type ResultVoteFilter
+} from "../lib/resultFilters";
 
 type Props = {
   aggregates: AdminAggregate[];
@@ -15,9 +20,10 @@ export function DatabaseFilterCombobox({ aggregates, selectedId, onSelect }: Pro
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ResultSort>("name");
   const [voteFilter, setVoteFilter] = useState<ResultVoteFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ResultStatusFilter>("all");
   const matches = useMemo(
-    () => filterAndSortAggregates(aggregates, query, voteFilter, sort),
-    [aggregates, query, sort, voteFilter]
+    () => filterAndSortAggregates(aggregates, query, voteFilter, statusFilter, sort),
+    [aggregates, query, sort, statusFilter, voteFilter]
   );
 
   useEffect(() => {
@@ -67,7 +73,7 @@ export function DatabaseFilterCombobox({ aggregates, selectedId, onSelect }: Pro
         </button>
       </div>
       <div className="row g-2 mb-2">
-        <div className="col-6">
+        <div className="col-4">
           <label className="form-label small mb-0">Sort
             <select className="form-select form-select-sm" value={sort} onChange={(event) => setSort(event.target.value as ResultSort)}>
               <option value="name">Name A–Z</option>
@@ -76,12 +82,21 @@ export function DatabaseFilterCombobox({ aggregates, selectedId, onSelect }: Pro
             </select>
           </label>
         </div>
-        <div className="col-6">
+        <div className="col-4">
           <label className="form-label small mb-0">Votes
             <select className="form-select form-select-sm" value={voteFilter} onChange={(event) => setVoteFilter(event.target.value as ResultVoteFilter)}>
               <option value="all">All</option>
               <option value="none">No votes</option>
               <option value="some">Has votes</option>
+            </select>
+          </label>
+        </div>
+        <div className="col-4">
+          <label className="form-label small mb-0">Status
+            <select className="form-select form-select-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ResultStatusFilter)}>
+              <option value="all">All</option>
+              <option value="open">Open</option>
+              <option value="finalized">Finalized</option>
             </select>
           </label>
         </div>
