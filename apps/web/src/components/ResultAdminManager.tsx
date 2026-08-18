@@ -7,6 +7,7 @@ import {
   adminUpdateResultAdmin
 } from "../api";
 import type { ResultAdmin } from "../types";
+import { ProgressSummary } from "./ProgressSummary";
 
 type Props = { adminToken: string };
 type Draft = { name: string; email: string };
@@ -114,7 +115,7 @@ export function ResultAdminManager({ adminToken }: Props) {
       {createdLink && <label className="form-label w-100">New admin review link<input className="form-control" readOnly value={createdLink} onFocus={(e) => e.currentTarget.select()} /></label>}
       <div className="table-responsive mt-3">
         <table className="table table-sm table-striped align-middle">
-          <thead><tr><th>Name</th><th>Email</th><th>Admin link</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Admin link</th><th>Review Progress</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {admins.map((admin) => {
               const draft = drafts[admin.id] ?? toDraft(admin);
@@ -123,6 +124,7 @@ export function ResultAdminManager({ adminToken }: Props) {
                 <td><input className="form-control form-control-sm" value={draft.name} onChange={(e) => updateDraft(admin.id, "name", e.target.value)} /></td>
                 <td><input className="form-control form-control-sm" type="email" value={draft.email} onChange={(e) => updateDraft(admin.id, "email", e.target.value)} /></td>
                 <td className="reviewer-link-cell">{admin.adminReviewUrlPath ? <input className="form-control form-control-sm" readOnly value={absoluteUrl(admin.adminReviewUrlPath)} onFocus={(e) => e.currentTarget.select()} /> : <span className="text-secondary">No active link</span>}</td>
+                <td><FinalizationProgress admin={admin} /></td>
                 <td><span className={`badge ${admin.active ? "text-bg-success" : "text-bg-secondary"}`}>{admin.active ? "Active" : "Inactive"}</span></td>
                 <td><div className="d-flex flex-wrap gap-1">
                   <button className="btn btn-sm btn-outline-primary" disabled={!changed || !draft.name.trim() || !draft.email.trim() || Boolean(busyId)} onClick={() => void save(admin)}>Save</button>
@@ -131,11 +133,26 @@ export function ResultAdminManager({ adminToken }: Props) {
                 </div></td>
               </tr>;
             })}
-            {admins.length === 0 && <tr><td colSpan={5} className="text-secondary">No admins found.</td></tr>}
+            {admins.length === 0 && <tr><td colSpan={6} className="text-secondary">No admins found.</td></tr>}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function FinalizationProgress({ admin }: { admin: ResultAdmin }) {
+  const progress = admin.assignmentProgress;
+  if (progress.totalCount === 0) return <span className="text-secondary">No assignments</span>;
+  const progressLabel = `${progress.finalizedCount} of ${progress.totalCount} finalized`;
+  return (
+    <ProgressSummary
+      current={progress.finalizedCount}
+      total={progress.totalCount}
+      label={progressLabel}
+      ariaLabel={`${admin.name}'s assigned databases: ${progressLabel}`}
+      updatedAt={progress.updatedAt}
+    />
   );
 }
 

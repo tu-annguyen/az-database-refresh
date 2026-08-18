@@ -1,5 +1,7 @@
 import type { ResultAdminCreate, ResultAdminUpdate } from "@az-refresh/shared";
 import { getActiveBatch } from "./db";
+import { listResultAdminAssignmentProgress } from "./resultAdminProgress";
+import type { ResultAdminAssignmentProgress } from "./resultAdminProgress";
 import type { Env } from "./types";
 
 type TokenCredentials = { token: string; tokenHash: string };
@@ -11,6 +13,7 @@ export type ResultAdminSummary = {
   active: boolean;
   createdAt: string;
   adminReviewUrlPath: string | null;
+  assignmentProgress: Omit<ResultAdminAssignmentProgress, "adminId">;
 };
 
 type ResultAdminRow = {
@@ -32,21 +35,36 @@ export async function createResultAdmin(
   await env.DB.prepare(
     "INSERT INTO result_admins (id, name, email, token, token_hash, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)"
   ).bind(id, payload.name, payload.email, credentials.token, credentials.tokenHash, now).run();
-  return { id, name: payload.name, email: payload.email, active: true, createdAt: now, adminReviewUrlPath: link(credentials.token) };
+  return {
+    id,
+    name: payload.name,
+    email: payload.email,
+    active: true,
+    createdAt: now,
+    adminReviewUrlPath: link(credentials.token),
+    assignmentProgress: emptyAssignmentProgress()
+  };
 }
 
 export async function listResultAdmins(env: Env): Promise<ResultAdminSummary[]> {
-  const rows = await env.DB.prepare(
-    "SELECT id, name, email, token, active, created_at FROM result_admins ORDER BY created_at DESC"
-  ).all<ResultAdminRow>();
-  return rows.results.map(fromRow);
+  const [admins, progress] = await Promise.all([
+    env.DB.prepare(
+      "SELECT id, name, email, token, active, created_at FROM result_admins ORDER BY created_at DESC"
+    ).all<ResultAdminRow>(),
+    listResultAdminAssignmentProgress(env)
+  ]);
+  const progressByAdmin = new Map(progress.map((item) => [item.adminId, item]));
+  return admins.results.map((admin) => fromRow(admin, progressByAdmin.get(admin.id)));
 }
 
 export async function getResultAdmin(env: Env, id: string): Promise<ResultAdminSummary | null> {
-  const row = await env.DB.prepare(
-    "SELECT id, name, email, token, active, created_at FROM result_admins WHERE id = ?"
-  ).bind(id).first<ResultAdminRow>();
-  return row ? fromRow(row) : null;
+  const [row, progress] = await Promise.all([
+    env.DB.prepare(
+      "SELECT id, name, email, token, active, created_at FROM result_admins WHERE id = ?"
+    ).bind(id).first<ResultAdminRow>(),
+    listResultAdminAssignmentProgress(env)
+  ]);
+  return row ? fromRow(row, progress.find((item) => item.adminId === id)) : null;
 }
 
 export async function updateResultAdmin(
@@ -128,7 +146,7 @@ export async function isDatabaseAssignedTo(env: Env, adminId: string, databaseId
 
 export class AssignmentValidationError extends Error {}
 
-function fromRow(row: ResultAdminRow): ResultAdminSummary {
+function fromRow(row: ResultAdminRow, progress?: ResultAdminAssignmentProgress): ResultAdminSummary {
   const active = row.active === 1;
   return {
     id: row.id,
@@ -136,8 +154,19 @@ function fromRow(row: ResultAdminRow): ResultAdminSummary {
     email: row.email,
     active,
     createdAt: row.created_at,
-    adminReviewUrlPath: active ? link(row.token) : null
+    adminReviewUrlPath: active ? link(row.token) : null,
+    assignmentProgress: progress
+      ? {
+          finalizedCount: progress.finalizedCount,
+          totalCount: progress.totalCount,
+          updatedAt: progress.updatedAt
+        }
+      : emptyAssignmentProgress()
   };
+}
+
+function emptyAssignmentProgress(): ResultAdminSummary["assignmentProgress"] {
+  return { finalizedCount: 0, totalCount: 0, updatedAt: null };
 }
 
 function link(token: string): string {

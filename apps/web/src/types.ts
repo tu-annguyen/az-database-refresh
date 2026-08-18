@@ -81,4 +81,11 @@ export type ResultAdmin = {
   active: boolean;
   createdAt: string;
   adminReviewUrlPath: string | null;
+  assignmentProgress: ResultAdminAssignmentProgress;
+};
+
+export type ResultAdminAssignmentProgress = {
+  finalizedCount: number;
+  totalCount: number;
+  updatedAt: string | null;
 };
