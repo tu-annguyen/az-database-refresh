@@ -187,6 +187,7 @@ export function AggregationPanel({ adminToken = "", resultAdminToken = "", showR
             <h2 className="h5 mb-1">{selected.record.databaseName}</h2>
             <div className="text-secondary small mb-1">ID {selected.record.databaseId}</div>
             <DatabaseUrl url={selected.record.databaseUrl} />
+            <AssociatedSubjects subjects={selected.record.associatedSubjects} />
             <VoteSummary item={selected} />
             <div className="row g-3 mt-1">
               <Description title="Original" html={selected.record.originalDescriptionHtml} onUse={() => applyDecision("use_original")} />
@@ -295,6 +296,15 @@ function DatabaseUrl({ url }: { url: string }) {
       ) : (
         <span className="text-break">{url}</span>
       )}
+    </div>
+  );
+}
+
+function AssociatedSubjects({ subjects }: { subjects: string[] }) {
+  return (
+    <div className="small mb-3">
+      <span className="text-secondary">Associated subjects: </span>
+      <span>{subjects.length > 0 ? subjects.join("; ") : "None"}</span>
     </div>
   );
 }
